@@ -3,10 +3,13 @@ import os
 from tqdm import tqdm
 import time
 import numpy as np
-from equirectangular_model import EquirectangularModel
-from utils import get_and_init_stitcher, get_regist_imgs
 import sqlite3
 import shutil
+import subprocess
+
+from equirectangular_model import EquirectangularModel
+from utils import get_and_init_stitcher, get_regist_imgs
+from std_sender import *
 
 
 def combine_remaps(map1_xy, map2_xy, map3_xy=None):
@@ -128,16 +131,19 @@ class ImageTransformer:
         return np.load(self.get_path(x, mat_name))
 
     def transform(self, left_img, right_img, x, y=None, fov=None):
+        
+        cmd = [
+            'paranoma',
+            cv2.imencode('.jpg', left_img)[1].tobytes(),
+            cv2.imencode('.jpg', right_img)[1].tobytes(),
+            x,
+            # y,
+            # fov
+        ]
 
-        left_mask = self.get_local_mat(x, "left_mask")
-        right_mask = self.get_local_mat(x, "right_mask")
-        blender = cv2.detail_MultiBandBlender()
-        blender.setNumBands(5)
-        blender.prepare((0,0,1920,1080))
-
-        blender.feed(cv2.UMat(left_img), cv2.UMat(left_mask), np.zeros(2, np.int64))
-        blender.feed(cv2.UMat(right_img), cv2.UMat(right_mask), np.zeros(2, np.int64))
-        res, _ = blender.blend(None, None)
+        process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        res = process.stdout.read()
+        
         return res
     
     def precalculate(self):

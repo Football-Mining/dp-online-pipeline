@@ -1,7 +1,6 @@
 import subprocess
 import time
 import numpy as np
-
 class ffmpegReader(object):
     def __init__(self, url, size):
         self.url = url
