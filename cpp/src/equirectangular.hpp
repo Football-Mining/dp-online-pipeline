@@ -2,6 +2,7 @@
 #include <opencv2/core.hpp>
 #include <opencv2/cudaarithm.hpp>
 #include <opencv2/cudawarping.hpp>
+// #include <Eigen/Dense>
 #include <iostream>
 #include <cmath>
 #include <vector>
@@ -59,4 +60,7 @@ private:
 
     double cx = (target_width - 1) / 2.0;
     double cy = (target_height - 1) / 2.0;
+
+    Vector3d y_axis(0.0, 1.0, 0.0);
+    Vector3d x_axis(1.0, 0.0, 0.0);
 };

@@ -7,81 +7,37 @@ double radians(double degrees) {
     return degrees * CV_PI / 180.0;
 }
 
-void meshgrid(const std::vector<int>& x_range, const std::vector<int>& y_range, std::vector<std::vector<int>>& x, std::vector<std::vector<int>>& y) {
-    int width = x_range.size();
-    int height = y_range.size();
-    
-    x.resize(height, std::vector<int>(width));
-    y.resize(height, std::vector<int>(width));
-    
-    for (int i = 0; i < height; ++i) {
-        for (int j = 0; j < width; ++j) {
-            x[i][j] = x_range[j];
-            y[i][j] = y_range[i];
-        }
-    }
-}
-
-cv::Mat xyz2lonlat(const cv::Mat& xyz) {
+MatrixXf xyz2lonlat(const MatrixXf& xyz) {
     // Calculate the norm
-    cv::Mat squared;
-    cv::reduce(xyz.mul(xyz), squared, 2, cv::REDUCE_SUM);
-    cv::Mat norm;
-    cv::sqrt(squared, norm);
-    norm = norm.reshape(1, xyz.rows);
+    MatrixXf squared = xyz.array().square();
+    VectorXf norm = squared.rowwise().sum().array().sqrt();
 
     // Normalize xyz
-    cv::Mat xyz_norm = xyz / norm;
+    MatrixXf xyz_norm = xyz.array().colwise() / norm.array();
 
     // Calculate longitude and latitude
-    cv::Mat lon, lat;
-    cv::phase(xyz_norm.col(0), xyz_norm.col(2), lon, true);
-    
-    lat = xyz_norm.col(1).clone();
-    for (int i = 0; i < lat.rows; ++i) {
-        lat.at<float>(i) = std::asin(lat.at<float>(i));
-    }
+    VectorXf lon = xyz_norm.col(0).binaryExpr(xyz_norm.col(2), [](float x, float z) { return std::atan2(x, z); });
+    VectorXf lat = xyz_norm.col(1).unaryExpr([](float y) { return std::asin(y); });
 
     // Concatenate lon and lat
-    std::vector<cv::Mat> lst = {lon, lat};
-    cv::Mat out;
-    cv::hconcat(lst, out);
-    out.convertTo(out, CV_32F);
-
-    return out;
-}
-Mat lonlat2XY(const Mat& lonlat, const Size& shape) {
-    Mat X = (lonlat.colRange(0, 1) / (X_HORIZON / 360.0 * CV_PI) + 0.5) * (shape.width - 1);
-    Mat Y = (lonlat.colRange(1, 2) / (Y_HORIZON / 360.0 * CV_PI) + 0.5) * (shape.height - 1);
-
-    vector<Mat> lst = { X, Y };
-    Mat out;
-    hconcat(lst, out);
+    MatrixXf out(xyz.rows(), 2);
+    out.col(0) = lon;
+    out.col(1) = lat;
 
     return out;
 }
 
-cv::Mat concatenateXYZ(const cv::Mat& x, const cv::Mat& y, const cv::Mat& z) {
-    CV_Assert(x.size() == y.size() && y.size() == z.size());
-    CV_Assert(x.type() == y.type() && y.type() == z.type());
+MatrixXd lonlat2XY(const MatrixXd& lonlat, const Vector2i& shape) {
+    const double X_HORIZON = 360.0; // Define X_HORIZON appropriately
+    const double Y_HORIZON = 180.0; // Define Y_HORIZON appropriately
 
-    int rows = x.rows;
-    int cols = x.cols;
-    int channels = x.channels();
+    MatrixXd X = (lonlat.col(0) / (X_HORIZON / 360.0 * M_PI) + 0.5) * (shape.x() - 1);
+    MatrixXd Y = (lonlat.col(1) / (Y_HORIZON / 360.0 * M_PI) + 0.5) * (shape.y() - 1);
 
-    cv::Mat xyz(rows, cols, CV_MAKE_TYPE(x.depth(), 3 * channels));
+    MatrixXd out(lonlat.rows(), 2);
+    out << X, Y;
 
-    for (int i = 0; i < rows; ++i) {
-        for (int j = 0; j < cols; ++j) {
-            for (int c = 0; c < channels; ++c) {
-                xyz.at<cv::Vec3f>(i, j)[0] = x.at<float>(i, j);
-                xyz.at<cv::Vec3f>(i, j)[1] = y.at<float>(i, j);
-                xyz.at<cv::Vec3f>(i, j)[2] = z.at<float>(i, j);
-            }
-        }
-    }
-
-    return xyz;
+    return out;
 }
 
 EquirectangularModel::EquirectangularModel(Size size) {
@@ -105,24 +61,24 @@ void EquirectangularModel::get_funcs() {
 }
 
 void EquirectangularModel::get_matrix(double theta, double phi, bool save) {
-    auto t0 = chrono::high_resolution_clock::now();
 
-    Mat y_axis = (Mat_<double>(3, 1) << 0.0, 1.0, 0.0);
-    Mat x_axis = (Mat_<double>(3, 1) << 1.0, 0.0, 0.0);
+    Matrix3d R1, R2;
+    AngleAxisd rot1(radians(theta), y_axis);
+    R1 = rot1.toRotationMatrix();
+    AngleAxisd rot2(radians(phi), R1 * x_axis);
+    R2 = rot2.toRotationMatrix();
+    Matrix3d R = R2 * R1;
 
-    Mat R1, R2;
-    Rodrigues(y_axis * radians(theta), R1);
-    Rodrigues(R1 * x_axis * radians(phi), R2);
-    Mat R = R2 * R1;
-    Mat xyz_rotated = xyz.reshape(1, target_height*target_width) * R.t();
+    MatrixXd xyz_rotated = (xyz.reshape(1, target_height * target_width) * R.transpose()).eval();
 
     double rotation_angle = -theta / 45.0 * 20;
-    Mat rotate = (Mat_<double>(3, 3) << cos(radians(rotation_angle)), -sin(radians(rotation_angle)), 0,
-        sin(radians(rotation_angle)), cos(radians(rotation_angle)), 0,
-        0, 0, 1);
-    xyz_rotated = xyz_rotated * rotate;
+    Matrix3d rotate;
+    rotate << cos(radians(rotation_angle)), -sin(radians(rotation_angle)), 0,
+              sin(radians(rotation_angle)),  cos(radians(rotation_angle)), 0,
+              0, 0, 1;
+    xyz_rotated = (xyz_rotated * rotate).eval();
 
-    Mat lonlat = xyz2lonlat(xyz_rotated.reshape(3, target_height));
+    MatrixXd lonlat = xyz2lonlat(xyz_rotated.reshape(3, target_height));
     xy = lonlat2XY(lonlat, Size(_width, _height)).clone();
 
     if (save) {
@@ -130,9 +86,11 @@ void EquirectangularModel::get_matrix(double theta, double phi, bool save) {
             filesystem::create_directory("matrices");
         }
         string filename = "matrices/mat_" + to_string(x) + ".npy";
-        FileStorage fs(filename, FileStorage::WRITE);
-        fs << "xy" << xy;
-        fs.release();
+        ofstream fs(filename, ios::binary);
+        if (fs.is_open()) {
+            fs.write(reinterpret_cast<const char*>(xy.data()), xy.size() * sizeof(double));
+            fs.close();
+        }
     }
 }
 
@@ -157,29 +115,26 @@ void EquirectangularModel::set_funcs_with_init_settings(const vector<int>& left_
 }
 
 void EquirectangularModel::get_xyz(double fov) {
-    double f = 0.5 * target_width / tan(0.5 * fov * M_PI / 180.0);
-    double cx = (target_width - 1) / 2.0;
-    double cy = (target_height - 1) / 2.0;
+    float f = 0.5 * target_width * 1 / tan(0.5 * FOV / 180.0 * M_PI);
+    float cx = (target_width - 1) / 2.0;
+    float cy = (target_height - 1) / 2.0;
 
-    cv::Mat K = (cv::Mat_<double>(3, 3) <<
-        f, 0, cx,
-        0, f, cy,
-        0, 0, 1);
+    Matrix3f K;
+    K << f, 0, cx,
+            0, f, cy,
+            0, 0, 1;
 
-    cv::Mat K_inv = K.inv(cv::DECOMP_CHOLESKY);
+    MatrixXf x = VectorXf::LinSpaced(width, 0, width - 1).replicate(1, height).transpose();
+    MatrixXf y = VectorXf::LinSpaced(height, 0, height - 1).replicate(1, width);
+    MatrixXf z = MatrixXf::Ones(height, width);
 
-    int out[3] = {target_height, target_width, 3};
-    cv::Mat tmp(3, out, CV_64F, cv::Scalar(0));
-    for (int i = 0; i < target_height; ++i) {
-        for (int j = 0; j < target_width; ++j) {
-            tmp.at<double>(i, j, 0) = j;
-            tmp.at<double>(i, j, 1) = i;
-            tmp.at<double>(i, j, 2) = 1;
-        }
-    }
+    MatrixXf xyz(target_height * target_width, 3);
+    xyz << Map<MatrixXf>(x.data(), target_height * target_width, 1),
+            Map<MatrixXf>(y.data(), target_height * target_width, 1),
+            Map<MatrixXf>(z.data(), target_height * target_width, 1);
 
-    xyz = tmp.reshape(1, target_height*target_width) * K_inv.t();
-    xyz = xyz.reshape(3, target_height);
+    Matrix3f K_inv = K.inverse();
+    this->xyz = (xyz * K_inv.transpose()).reshaped(target_height, target_width, 3);
 }
 
 void EquirectangularModel::get_size(const Mat& image) {

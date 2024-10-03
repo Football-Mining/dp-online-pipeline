@@ -80,8 +80,10 @@ class EquirectangularModel:
             )  # 输入x得到fov，绝对值一次函数，在中场的时候视角最远
 
     def get_matrix(self, THETA, PHI, save=False):
+        t0 = time.time()
         R1, _ = cv2.Rodrigues(self.y_axis * np.radians(THETA, dtype=np.float32))
         R2, _ = cv2.Rodrigues((R1 @ self.x_axis) * np.radians(PHI, dtype=np.float32))
+        # 0.00013256072998046875
 
         # rotation_angle = -THETA / 45. * 35
         rotation_angle = -THETA / 45.0 * 20
@@ -181,15 +183,10 @@ class EquirectangularModel:
         )
         x, y = np.meshgrid(np.arange(width), np.arange(height))
         z = np.ones_like(x, dtype=np.float32)
-        xyz = np.concatenate(
-            [x[..., None], y[..., None], z[..., None]], axis=-1, dtype=np.float32
-        )
-        t0 = time.time()
+        xyz = np.stack([x, y, z], axis=-1, dtype=np.float32)
+        
         K_inv = np.linalg.inv(K)
         self.xyz = xyz @ K_inv.T  # 0.007654
-        # K_inv_T = np.linalg.inv(K).T
-        # self.xyz = np.dot(xyz, K_inv_T) # 0.05264472961425781
-        # self.xyz = np.ascontiguousarray(self.xyz)
 
     def get_size(self, image):
         if self._height is None:
