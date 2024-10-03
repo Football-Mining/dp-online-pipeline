@@ -23,34 +23,33 @@ void meshgrid(const std::vector<int>& x_range, const std::vector<int>& y_range, 
 }
 
 cv::Mat xyz2lonlat(const cv::Mat& xyz) {
-    // Compute the norm of each vector in the xyz matrix
+    // Calculate the norm
+    cv::Mat squared;
+    cv::reduce(xyz.mul(xyz), squared, 2, cv::REDUCE_SUM);
     cv::Mat norm;
-    cv::reduce(xyz.mul(xyz), norm, 2, cv::REDUCE_SUM);
-    cv::sqrt(norm, norm);
+    cv::sqrt(squared, norm);
+    norm = norm.reshape(1, xyz.rows);
 
-    // Reshape norm to match the dimensions of xyz
-    cv::Mat norm_reshaped;
-    cv::repeat(norm, 1, xyz.cols, norm_reshaped);
+    // Normalize xyz
+    cv::Mat xyz_norm = xyz / norm;
 
-    // Normalize the xyz matrix
-    cv::Mat xyz_norm;
-    cv::divide(xyz, norm_reshaped, xyz_norm);
-
-    cv::Mat x = xyz_norm.colRange(0, 1);
-    cv::Mat y = xyz_norm.colRange(1, 2);
-    cv::Mat z = xyz_norm.colRange(2, 3);
-
+    // Calculate longitude and latitude
     cv::Mat lon, lat;
-    cv::phase(x, z, lon, true); // atan2 equivalent
-    cv::phase(y, cv::Mat::zeros(y.size(), y.type()), lat, true); // asin equivalent
+    cv::phase(xyz_norm.col(0), xyz_norm.col(2), lon, true);
+    
+    lat = xyz_norm.col(1).clone();
+    for (int i = 0; i < lat.rows; ++i) {
+        lat.at<float>(i) = std::asin(lat.at<float>(i));
+    }
 
+    // Concatenate lon and lat
     std::vector<cv::Mat> lst = {lon, lat};
     cv::Mat out;
     cv::hconcat(lst, out);
+    out.convertTo(out, CV_32F);
 
     return out;
 }
-
 Mat lonlat2XY(const Mat& lonlat, const Size& shape) {
     Mat X = (lonlat.colRange(0, 1) / (X_HORIZON / 360.0 * CV_PI) + 0.5) * (shape.width - 1);
     Mat Y = (lonlat.colRange(1, 2) / (Y_HORIZON / 360.0 * CV_PI) + 0.5) * (shape.height - 1);

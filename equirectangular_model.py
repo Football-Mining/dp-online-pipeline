@@ -4,7 +4,6 @@ import numpy as np
 from tqdm import tqdm
 import time
 
-
 # x_rate = 2.53
 # y_rate = 3.01
 
@@ -21,9 +20,6 @@ MATRIX_SAMPLE_RATE = 1
 
 
 def xyz2lonlat(xyz):
-    atan2 = np.arctan2
-    asin = np.arcsin
-
     # xyz shape = (1080, 1920, 3)
     # norm = np.linalg.norm(xyz, axis=-1, keepdims=True) # 0.0285997390747070
     norm = np.sqrt(np.einsum("...i,...i", xyz, xyz, optimize=True))[
@@ -31,22 +27,21 @@ def xyz2lonlat(xyz):
     ]  # 0.012732982635498047
     xyz_norm = xyz / norm
 
-    x = xyz_norm[..., 0:1]
-    y = xyz_norm[..., 1:2]
-    z = xyz_norm[..., 2:]
-
-    lon = atan2(x, z)  # 0.009532451629638672
-    lat = asin(y)  # 0.00666499137878418
+    lon = np.arctan2(xyz_norm[..., 0], xyz_norm[..., 2])  # 0.009532451629638672
+    lat = np.arcsin(xyz_norm[..., 1])  # 0.00666499137878418
 
     lst = [lon, lat]
+    out = np.concatenate(lst, axis=-1, dtype=np.float32)  # 0.002559900283813476
 
-    out = np.concatenate(lst, axis=-1, dtype=np.float32)  # 0.006864309310913086
+    # out = np.empty((xyz_norm.shape[0], xyz_norm.shape[1]*2), dtype=np.float32)
+    # out[..., :xyz_norm.shape[1]] = lon
+    # out[..., xyz_norm.shape[1]:] = lat # 0.0026030540466308594
+
     return out
 
 
 def lonlat2XY(lonlat, shape):
     X = (lonlat[..., 0:1] / (x_horizon / 360.0 * np.pi) + 0.5) * (shape[1] - 1)
-    # print(X)
     Y = (lonlat[..., 1:] / (y_horizon / 360.0 * np.pi) + 0.5) * (shape[0] - 1)
 
     lst = [X, Y]
@@ -70,6 +65,9 @@ class EquirectangularModel:
             # print(self._width, self._height)
             self.get_funcs()
 
+        self.y_axis = np.array([0.0, 1.0, 0.0], np.float32)
+        self.x_axis = np.array([1.0, 0.0, 0.0], np.float32)
+
     def get_funcs(self):
         if self.y_func is None:
 
@@ -82,39 +80,40 @@ class EquirectangularModel:
             )  # 输入x得到fov，绝对值一次函数，在中场的时候视角最远
 
     def get_matrix(self, THETA, PHI, save=False):
-        y_axis = np.array([0.0, 1.0, 0.0], np.float32)
-        x_axis = np.array([1.0, 0.0, 0.0], np.float32)
-
-        R1, _ = cv2.Rodrigues(y_axis * np.radians(THETA, dtype=np.float32))
-        R2, _ = cv2.Rodrigues(np.dot(R1, x_axis) * np.radians(PHI, dtype=np.float32))
-        R = R2 @ R1
-        xyz = self.xyz @ R.T  # 0.012993097305297852
+        R1, _ = cv2.Rodrigues(self.y_axis * np.radians(THETA, dtype=np.float32))
+        R2, _ = cv2.Rodrigues((R1 @ self.x_axis) * np.radians(PHI, dtype=np.float32))
 
         # rotation_angle = -THETA / 45. * 35
         rotation_angle = -THETA / 45.0 * 20
-        # print(rotation_angle)
+
+        t0 = time.time()
         rotate = np.array(
             [
                 [
-                    np.cos(np.radians(rotation_angle)),
-                    -np.sin(np.radians(rotation_angle)),
+                    np.cos(np.radians(rotation_angle, dtype=np.float32)),
+                    -np.sin(np.radians(rotation_angle, dtype=np.float32)),
                     0,
                 ],
                 [
-                    np.sin(np.radians(rotation_angle)),
-                    np.cos(np.radians(rotation_angle)),
+                    np.sin(np.radians(rotation_angle, dtype=np.float32)),
+                    np.cos(np.radians(rotation_angle, dtype=np.float32)),
                     0,
                 ],
                 [0, 0, 1],
             ],
             np.float32,
         )
-        xyz = xyz @ rotate  # 0.008530855178833008
 
-        lonlat = xyz2lonlat(xyz)  # 0.06560611724853516
+        R = R2 @ R1
+        xyz = self.xyz @ R.T
+        xyz = xyz @ rotate  # Matrix multiplication: 0.01298666000366211
+
+        print("rotate time: {}".format(time.time() - t0))
+
+        lonlat = xyz2lonlat(xyz)  # 0.026862621307373047
         self.XY = lonlat2XY(
             lonlat, shape=[self._height, self._width]
-        )  # .astype(np.float32)
+        )  # 0.007466316223144531
 
         if save:
             if not os.path.exists("matrices"):
@@ -180,15 +179,16 @@ class EquirectangularModel:
             ],
             np.float32,
         )
-        K_inv = np.linalg.inv(K)
-        x = np.arange(width)
-        y = np.arange(height)
-        x, y = np.meshgrid(x, y)
+        x, y = np.meshgrid(np.arange(width), np.arange(height))
         z = np.ones_like(x, dtype=np.float32)
         xyz = np.concatenate(
             [x[..., None], y[..., None], z[..., None]], axis=-1, dtype=np.float32
         )
-        self.xyz = xyz @ K_inv.T
+        t0 = time.time()
+        K_inv = np.linalg.inv(K)
+        self.xyz = xyz @ K_inv.T  # 0.007654
+        # K_inv_T = np.linalg.inv(K).T
+        # self.xyz = np.dot(xyz, K_inv_T) # 0.05264472961425781
         # self.xyz = np.ascontiguousarray(self.xyz)
 
     def get_size(self, image):
@@ -511,7 +511,7 @@ if __name__ == "__main__":
 
     x_value = 1250
     t = time.time()
-    res = e.get_mat(x_value, 500, 34)
+    res = e.get_mat(x_value)  # , 500, 34)
     print("time: ", time.time() - t)
     # print(res)
     # left_most_setting = (870, 360, 34)
