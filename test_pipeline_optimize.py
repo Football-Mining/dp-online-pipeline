@@ -9,18 +9,17 @@ import subprocess
 # 一些配置样例
 
 # 球场角点以及cameraman最左侧、中间、最右侧的位置
-points_config = {"polygon": [[1222, 524], [347, 840], [2085, 1472], [3755, 750], [2874, 477]], "left_crop_size": [342, 492], "right_crop_size": [2367, 464], "left_most_setting": [1446, 615, 33], "middle_point_setting": [1983, 763, 42], "right_most_setting": [2646, 590, 33]}
-
+points_config = {"polygon": [[1529, 705], [47, 1027], [2741, 1988], [5390, 1009], [3921, 717]], "left_crop_size": [0, 677], "right_crop_size": [2687, 759], "left_most_setting": [1911, 925, 40], "middle_point_setting": [2693, 1006, 47], "right_most_setting": [3485, 930, 41]}
 dp_live_config = {
-    "match_id": "3KbfMFiNKX2",
-    "device_id": "test_undistort",
+    "match_id": "LRcEqMhaPo9",
+    "device_id": "test_4K",
     "init_frame_seconds": 1.5,
     "skip_frame_seconds": 0,
     "debug": False,
     "pull_url": "MOV_0082.mp4"
 }
 
-img_size = (1520, 2688, 3)
+img_size = (2160, 3840, 3)
 video_path = "MOV_0082.mp4"
 
 reader = ffmpegMultiTrackReader(video_path, img_size)
