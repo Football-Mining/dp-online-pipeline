@@ -1,0 +1,3 @@
+[submodule "dp_stitching"]
+	path = dp_stitching
+	url = git@github.com:Football-Mining/dp_stitching.git

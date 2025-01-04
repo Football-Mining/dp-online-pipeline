@@ -43,13 +43,12 @@ class ffmpegMultiTrackReader(object):
         self.skips = 0 # new fps = original_fps / ( skips + 1 )
         self.video_tracks = read_video_tracks(urls)
     
-    
     def next(self):
         for i in range(self.skips):
             right, left = next(self.video_tracks)
         right, left = next(self.video_tracks)
-        left = cv2.cvtColor(left, cv2.COLOR_BGR2RGB)
-        right = cv2.cvtColor(right, cv2.COLOR_BGR2RGB)
+        left = cv2.Umat(cv2.cvtColor(left, cv2.COLOR_BGR2RGB))
+        right = cv2.Umat(cv2.cvtColor(right, cv2.COLOR_BGR2RGB))
 
         return [left, right]
     
