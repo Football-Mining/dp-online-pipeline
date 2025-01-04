@@ -4,9 +4,9 @@ import os
 
 MATRICES_ROOT_DIR = "/ssd/matrices"
 
-def get_regist_imgs():
-    left = cv2.imread("camera_configs/a6f33276e5c4b7e7/regist_left.png")
-    right = cv2.imread("camera_configs/a6f33276e5c4b7e7/regist_right.png")
+def get_regist_imgs(device_id="test_4K"):
+    left = cv2.imread(f"camera_configs/{device_id}/regist_left.png")
+    right = cv2.imread(f"camera_configs/{device_id}/regist_right.png")
     return left, right
 
 def get_points_config_path(device_id, match_id):
