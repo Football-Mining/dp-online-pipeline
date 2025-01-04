@@ -4,22 +4,11 @@ import numpy as np
 from tqdm import tqdm
 import time
 
-
-# x_rate = 2.53
-# y_rate = 3.01
-
-x_rate = 2.62
-y_rate = 3.59
-
 x_horizon = 210     # x轴方向视野的角度（两个镜头融合起来，即全景视角中的视野宽度）
 y_horizon = 70     # 同上，y轴方向
 
 MATRIX_SAMPLE_RATE = 1
 
-
-
-
-# FOV_FUNC = lambda x: 50
 
 def xyz2lonlat(xyz):
     # print(xyz)
@@ -95,6 +84,10 @@ class EquirectangularModel:
 
     def GetPerspective(self, image):
         self.get_size(image)
+        # print(self.XY[0])
+        
+        self.XY = self.XY.astype(np.int32).astype(np.float32)
+        # print(self.XY[0])
         persp = cv2.remap(image, self.XY[..., 0], self.XY[..., 1], cv2.INTER_CUBIC)
 
         return persp
@@ -137,8 +130,11 @@ class EquirectangularModel:
         R = R2 @ R1
         xyz = self.xyz @ R.T
 
-        # rotation_angle = -THETA / 45. * 35
-        rotation_angle = -THETA / 45. * 20
+        # print("xyz:", time.time() - t0)
+
+        t0 = time.time()
+        # rotation_angle = -THETA / 45. * 20
+        rotation_angle = -THETA / 45. * 10
         # print(rotation_angle)
         rotate = np.array([
             [np.cos(np.radians(rotation_angle)), -np.sin(np.radians(rotation_angle)), 0],
@@ -147,12 +143,12 @@ class EquirectangularModel:
         ])
         xyz = xyz @ rotate
 
+        # print("rotate", time.time() - t0)
 
-        # print(xyz[0][0])
+        t0 = time.time()
         lonlat = xyz2lonlat(xyz)
         self.XY = lonlat2XY(lonlat, shape=[self._height, self._width]).astype(np.float32)
-
-        # print("compute matrix time: {}".format(time.time() - t0))
+        # print("lonlat2XY", time.time() - t0)
 
         if save:
             if not os.path.exists("matrices"):
@@ -162,8 +158,13 @@ class EquirectangularModel:
     def set_funcs_with_init_settings(self, left_most_setting, middle_point_setting, right_most_setting):
         # 使得视角和y值线性变化
         # print(left_most_setting)
-        y_func_left = lambda x: (left_most_setting[1] + (middle_point_setting[1] - left_most_setting[1]) * (x - left_most_setting[0]) / (middle_point_setting[0] - left_most_setting[0]))
-        y_func_right = lambda x: (middle_point_setting[1] + (right_most_setting[1] - middle_point_setting[1]) * (1 - (right_most_setting[0] - x) / (right_most_setting[0] - middle_point_setting[0])))
+        a_left = (left_most_setting[1] - middle_point_setting[1]) / ((middle_point_setting[0] - left_most_setting[0]) ** 2)
+        a_right = (right_most_setting[1] - middle_point_setting[1]) / ((middle_point_setting[0] - right_most_setting[0]) ** 2)
+
+        y_func_left = lambda x: (middle_point_setting[1] + a_left * (x - middle_point_setting[0]) ** 2)
+        y_func_right = lambda x: (middle_point_setting[1] + a_right * (x - middle_point_setting[0]) ** 2)
+        # y_func_left = lambda x: (left_most_setting[1] + (middle_point_setting[1] - left_most_setting[1]) * (x - left_most_setting[0]) / (middle_point_setting[0] - left_most_setting[0]))
+        # y_func_right = lambda x: (middle_point_setting[1] + (right_most_setting[1] - middle_point_setting[1]) * (1 - (right_most_setting[0] - x) / (right_most_setting[0] - middle_point_setting[0])))
 
         fov_func_left = lambda x: (left_most_setting[2] + (middle_point_setting[2] - left_most_setting[2]) * (x - left_most_setting[0]) / (middle_point_setting[0] - left_most_setting[0]))
         fov_func_right = lambda x: (middle_point_setting[2] + (right_most_setting[2] - middle_point_setting[2]) * (1- (right_most_setting[0] - x) / (right_most_setting[0] - middle_point_setting[0])))
@@ -231,15 +232,21 @@ class EquirectangularModel:
         return self.GetPerspective(image)
     
     def get_mat(self, x, y=None, fov=None):
+        t0 = time.time()
         if y is None:
             y = int(self.y_func(x))
         THETA = ((x - self._width / 2.) / (self._width / 2.)) * 90
         PHI = -((y - self._height / 2.) / (self._height / 2.)) * 45
         if fov is None:
             fov = self.fov_func(x)
+        # print("compute time", time.time() - t0)
         # print(x, y, fov)
+        t0 = time.time()
         self.get_xyz(fov)
+        # print("get_xyz time", time.time() - t0)
+        t0 = time.time()
         self.get_matrix(THETA, PHI)
+        # print("get_matrix time", time.time() - t0)
         return self.XY
 
     def GetPerspectiveFromCoord(self, image, x, y=None, fov=None, fast_mode=False):
@@ -286,203 +293,41 @@ class EquirectangularModel:
         return THETA, PHI
 
 
-    def save_all_matrices(self, x_range):
-        # self.get_funcs()
-        tmp_x, tmp_y = self.x, self.y
-        for x in tqdm(x_range):
-            y = int(self.y_func(x))
-            self.get_xyz(self.fov_func(x))
-            THETA, PHI = e.get_angles_from_points(x, y)
-            self.x, self.y = x, y
-            self.get_matrix(THETA, PHI, save=True)
-        self.x, self.y = tmp_x, tmp_y
-
-
-
-def update1(x):
-    global x_horizon, y_horizon
-    x_horizon = x
-    print("x_horizon", x_horizon)
-    print("y_horizon", y_horizon)
-
-    persp = e.GetPerspectiveFromCoordStupid(img, x_value)
-
-    cv2.imshow("Image", persp)
-
-
-def update2(x):
-    global x_horizon, y_horizon
-    y_horizon = x
-    print("x_horizon", x_horizon)
-    print("y_horizon", y_horizon)
-
-    persp = e.GetPerspectiveFromCoordStupid(img, x_value)
-
-    cv2.imshow("Image", persp)
-
-# 主函数
-def set_perspective_param(panorama_path, name="test"):
-    # 打开图片
-    img = cv2.imread(panorama_path, cv2.IMREAD_COLOR)
-
-    # 创建实例
-    e = EquirectangularModel(size=img.shape[:2])
-
-    # 设置初始位置
-    x_value = 1250
-    y_value = 500
-    fov = 34
-
-    # 鼠标事件处理
-    dragging = False
-    start_x, start_y = 0, 0
-
-    # 显示初始图片
-    persp = e.GetPerspectiveFromCoord(img, x_value, y_value, fov)
-    cv2.imshow(f"{name}", persp)
-
-
-    def mouse_event(event, x, y, flags, param):
-        nonlocal x_value, y_value, fov, dragging, start_x, start_y
-
-        if event == cv2.EVENT_LBUTTONDOWN:
-            # 鼠标按下
-            dragging = True
-            start_x, start_y = x, y
-
-        elif event == cv2.EVENT_MOUSEMOVE:
-            # 鼠标移动
-            if dragging:
-                delta_x = x - start_x
-                delta_y = y - start_y
-                x_value -= delta_x
-                y_value -= delta_y
-                start_x, start_y = x, y
-                fov = e.fov_func(x_value)
-                persp = e.GetPerspectiveFromCoord(img, x_value, y_value, fov)
-                cv2.imshow(f"{name}", persp)
-
-        elif event == cv2.EVENT_LBUTTONUP:
-            # 鼠标释放
-            dragging = False
-
-    cv2.setMouseCallback(f"{name}", mouse_event)
-
-    while True:
-        key = cv2.waitKey(1) & 0xFF
-        if key == ord('q'):
-            break
-        elif key == ord('='):
-            print(1)
-            fov -= 1
-            fov = max(1, min(90, fov))
-            persp = e.GetPerspectiveFromCoordStupid(img, x_value, y_value, fov)
-            cv2.imshow(f"{name}", persp)
-        elif key == ord('-'):
-            fov += 1
-            fov = max(1, min(90, fov))
-            persp = e.GetPerspectiveFromCoordStupid(img, x_value, y_value, fov)
-            cv2.imshow(f"{name}", persp)
-        elif key == ord('w'):
-            y_value -= 5
-            persp = e.GetPerspectiveFromCoordStupid(img, x_value, y_value, fov)
-            cv2.imshow(f"{name}", persp)
-        elif key == ord('s'):
-            y_value += 5
-            persp = e.GetPerspectiveFromCoordStupid(img, x_value, y_value, fov)
-            cv2.imshow(f"{name}", persp)
-        elif key == ord('a'):
-            x_value -= 5
-            persp = e.GetPerspectiveFromCoordStupid(img, x_value, y_value, fov)
-            cv2.imshow(f"{name}", persp)
-        elif key == ord('d'):
-            x_value += 5
-            persp = e.GetPerspectiveFromCoordStupid(img, x_value, y_value, fov)
-            cv2.imshow(f"{name}", persp)
-            
-
-    cv2.destroyAllWindows()
-
-    return (int(x_value), int(y_value), int(fov))
-
-
-
-
-def set_court_points(panorama_path):
-    img = cv2.imread(panorama_path, cv2.IMREAD_COLOR)
-     # 创建实例
-    e = EquirectangularModel(size=img.shape[:2])
-
-    # 设置初始位置
-    x_value = 1250
-    y_value = 500
-    fov = 34
-
-    # 显示初始图片
-    cv2.imshow("Image", img)
-
-    # 鼠标事件处理
-    dragging = False
-    start_x, start_y = 0, 0
-    points = []
-
-    def mouse_event(event, x, y, flags, param):
-        nonlocal x_value, y_value, fov, dragging, start_x, start_y, points, img
-
-        if event == cv2.EVENT_LBUTTONDOWN:
-            # 鼠标按下
-            if len(points) < 6:
-                points.append((x, y))
-                cv2.circle(img, (x, y), 5, (0, 0, 255), -1)
-                cv2.imshow("Image", img)
-                # print(f"Point added at ({x}, {y})")
-
-    cv2.setMouseCallback("Image", mouse_event)
-
-    while True:
-        key = cv2.waitKey(1) & 0xFF
-        if key == ord('q'):
-            break
-        elif key == 27:  # ESC键
-            if points:
-                last_point = points.pop()
-                cv2.circle(img, last_point, 5, (0, 0, 0), -1)  # 撤销上一个点
-                cv2.imshow("Image", img)
-                # print(f"Last point removed at {last_point}")
-
-    cv2.destroyAllWindows()
-    return points
-
 
 if __name__ == '__main__':
 
-    """打开图片"""
-    # cap = cv2.VideoCapture("test_output.mp4")
-    # ret, img = cap.read()
-    # cap.release()
-    # set_perspective_param("panorama_new.png", "left")
-    # points = set_court_points("panorama_new.png")
-    left_most_setting = set_perspective_param("panorama_new.png", "left")
-    print(left_most_setting)
+    import json
+    from utils import get_points_config_path, get_regist_imgs, get_and_init_stitcher
     
+    config_path = "test_config.json"
+    dp_live_config = json.load(open(config_path, "r"))
+    match_id = dp_live_config["match_id"]
+    device_id = dp_live_config["device_id"]
+    
+    left_channel = f"{device_id}_{match_id}_left"
+    right_channel = f"{device_id}_{match_id}_right"
 
-    # img = cv2.imread("panorama_new.png", cv2.IMREAD_COLOR)
+    points_config = json.load(open(get_points_config_path(device_id, match_id), "r"))
+    e = EquirectangularModel()
+    panorama = cv2.imread("panorama_new.png", cv2.IMREAD_COLOR)
+    e.GetPerspectiveFromCoordStupid(panorama, 1500)
+    e.set_funcs_with_init_settings(points_config["left_most_setting"], points_config["middle_point_setting"], points_config["right_most_setting"])
 
-    # # """创建实例"""
-    # e = EquirectangularModel()
-    # x_value = 1250
+    # t0 = time.time()
+    # e.get_mat(1500)
+    # print("get_mat time:", time.time() - t0)
     # left_most_setting = (870, 360, 34)
     # middle_point_setting = (1350, 485, 48)
     # right_most_setting = (1750, 355, 36)
 
     # e.set_funcs_with_init_settings(left_most_setting, middle_point_setting, right_most_setting)
 
-    # res = e.GetPerspectiveFromCoordStupid(img, left_most_setting[0])
-    # cv2.imwrite('test_left_most1.png', res)
-    # res = e.GetPerspectiveFromCoordStupid(img, middle_point_setting[0])
-    # cv2.imwrite('test_middle1.png', res)
-    # res = e.GetPerspectiveFromCoordStupid(img, right_most_setting[0])
-    # cv2.imwrite('test_right_most1.png', res)
+    res = e.GetPerspectiveFromCoordStupid(panorama, points_config["left_most_setting"][0])
+    cv2.imwrite('test_left_most2.png', res)
+    res = e.GetPerspectiveFromCoordStupid(panorama, points_config["middle_point_setting"][0])
+    cv2.imwrite('test_middle2.png', res)
+    res = e.GetPerspectiveFromCoordStupid(panorama, points_config["right_most_setting"][0])
+    cv2.imwrite('test_right_most2.png', res)
 
     """调参数"""
     # persp = e.GetPerspectiveFromCoordStupid(img, x_value)

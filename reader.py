@@ -1,8 +1,59 @@
 import subprocess
 import time
 import numpy as np
+import json
+import cv2
 
-class ffmpegReader(object):
+def ffmpeg_info(filename):
+    try:
+        proc = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", "-show_streams", filename],
+            capture_output=True, check=True, text=True
+        )
+        return json.loads(proc.stdout)
+    except subprocess.CalledProcessError as e:
+        print(f"Error running ffprobe: {e}")
+        return None
+
+def read_video_tracks(filename):
+    cmd = ["ffmpeg", "-v", "quiet", '-c:v', 'h264_cuvid', "-i", filename]
+    streams = 0
+    for stream in ffmpeg_info(filename)["streams"]:
+        index = stream["index"]
+        if stream["codec_type"] == "video":
+            width = stream["width"]
+            height = stream["height"]
+            cmd += "-map", f"0:{index}"
+            streams = streams + 1
+    cmd += "-f", "rawvideo", "-pix_fmt", "rgb24", "-"
+    shape = np.array([streams, height, width, 3])
+    with subprocess.Popen(cmd, stdout=subprocess.PIPE) as proc:
+        while True:
+            data = proc.stdout.read(shape.prod())  # One byte per each element
+            if not data:
+                return
+            data = np.frombuffer(data, dtype=np.uint8)
+            if data.shape[0] != shape.prod():
+                continue
+            yield data.reshape(shape)
+
+
+class ffmpegMultiTrackReader(object):
+    def __init__(self, urls, size):
+        self.skips = 0 # new fps = original_fps / ( skips + 1 )
+        self.video_tracks = read_video_tracks(urls)
+    
+    
+    def next(self):
+        for i in range(self.skips):
+            right, left = next(self.video_tracks)
+        right, left = next(self.video_tracks)
+        left = cv2.cvtColor(left, cv2.COLOR_BGR2RGB)
+        right = cv2.cvtColor(right, cv2.COLOR_BGR2RGB)
+
+        return [left, right]
+    
+class ffmpegAudioReader(object):
     def __init__(self, url, size):
         self.url = url
         self.process = None
@@ -11,28 +62,6 @@ class ffmpegReader(object):
         self.size = size
 
 
-        # assert input_fps in [30, 60]
-
-        # self.skip_current = False
-
-        self._start_ffmpeg_video()
-
-
-    def _start_ffmpeg_video(self):
-        cmd = [
-            'ffmpeg',
-            '-re',
-            '-live_start_index', '0',
-            '-protocol_whitelist', 'tcp,file,http,crypto,data',
-            '-i', self.url,
-            # '-playlist_start_number', '0', 
-            '-r', "30",
-            '-f', 'image2pipe',
-            '-pix_fmt', 'bgr24',
-            '-vcodec', 'rawvideo', '-'
-        ]
-        self.process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-    
     def start_ffmpeg_audio(self, audio_path, delay_seconds=0):
         print("starting ffmpeg audio", audio_path, delay_seconds)
         if delay_seconds < 0 :
@@ -59,7 +88,60 @@ class ffmpegReader(object):
                 audio_path
             ]
         print(f'ffmpeg cmd: {cmd}')
-        self.audio_process = subprocess.Popen(cmd)
+        self.process = subprocess.Popen(cmd)
+
+    def stop(self):
+        """停止FFmpeg进程"""
+        if self.process is not None and self.process.poll() is None:
+            self.process.terminate()
+            self.process.wait()
+            self.process = None
+
+
+class ffmpegReader(object):
+    def __init__(self, url, size):
+        self.url = url
+        self.process = None
+        # self.size = (1920, 1080)
+        # self.size = (2560, 1440)
+        self.size = size
+
+
+        # assert input_fps in [30, 60]
+
+        # self.skip_current = False
+
+        self._start_ffmpeg_video()
+
+    def _start_ffmpeg_video(self):
+        if "http" in self.url or "m3u8" in self.url:
+            cmd = [
+                'ffmpeg',
+                '-copyts',
+                '-c:v', 'h264_cuvid',
+                '-live_start_index', '0',
+                '-protocol_whitelist', 'tcp,file,http,crypto,data',
+                '-i', self.url,
+                # '-threads', '1',
+                '-r', "30",
+                '-f', 'image2pipe',
+                '-pix_fmt', 'bgr24',
+                '-vcodec', 'rawvideo', '-',
+                # '-v', 'info'
+            ]
+        else:
+            cmd = [
+                'ffmpeg',
+                '-c:v', 'h264_cuvid',
+                '-i', self.url,
+                # '-threads', '1',
+                '-r', "30",
+                '-f', 'image2pipe',
+                '-pix_fmt', 'bgr24',
+                '-vcodec', 'rawvideo', '-'
+            ]
+        self.process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    
 
 
     def next(self):
