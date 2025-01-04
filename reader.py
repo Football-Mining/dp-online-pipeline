@@ -4,19 +4,32 @@ import numpy as np
 import json
 import cv2
 
+
 def ffmpeg_info(filename):
     try:
         proc = subprocess.run(
-            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", "-show_streams", filename],
-            capture_output=True, check=True, text=True
+            [
+                "ffprobe",
+                "-v",
+                "quiet",
+                "-print_format",
+                "json",
+                "-show_format",
+                "-show_streams",
+                filename,
+            ],
+            capture_output=True,
+            check=True,
+            text=True,
         )
         return json.loads(proc.stdout)
     except subprocess.CalledProcessError as e:
         print(f"Error running ffprobe: {e}")
         return None
 
+
 def read_video_tracks(filename):
-    cmd = ["ffmpeg", "-v", "quiet", '-c:v', 'h264_cuvid', "-i", filename]
+    cmd = ["ffmpeg", "-v", "quiet", "-c:v", "h264_cuvid", "-i", filename]
     streams = 0
     for stream in ffmpeg_info(filename)["streams"]:
         index = stream["index"]
@@ -40,9 +53,9 @@ def read_video_tracks(filename):
 
 class ffmpegMultiTrackReader(object):
     def __init__(self, urls, size):
-        self.skips = 0 # new fps = original_fps / ( skips + 1 )
+        self.skips = 0  # new fps = original_fps / ( skips + 1 )
         self.video_tracks = read_video_tracks(urls)
-    
+
     def next(self):
         for i in range(self.skips):
             right, left = next(self.video_tracks)
@@ -51,7 +64,8 @@ class ffmpegMultiTrackReader(object):
         right = cv2.Umat(cv2.cvtColor(right, cv2.COLOR_BGR2RGB))
 
         return [left, right]
-    
+
+
 class ffmpegAudioReader(object):
     def __init__(self, url, size):
         self.url = url
@@ -60,33 +74,42 @@ class ffmpegAudioReader(object):
         # self.size = (2560, 1440)
         self.size = size
 
-
     def start_ffmpeg_audio(self, audio_path, delay_seconds=0):
         print("starting ffmpeg audio", audio_path, delay_seconds)
-        if delay_seconds < 0 :
+        if delay_seconds < 0:
             delay = abs(delay_seconds) * 1000
             cmd = [
-                'ffmpeg',
-                '-protocol_whitelist', 'tcp,file,http,crypto,data',
-                '-i', self.url,
-                '-af', f'adelay={delay}|{delay}',
-                '-acodec', 'aac',  # 输出 PCM 格式
-                '-loglevel', 'quiet',
-                '-y',
-                audio_path
+                "ffmpeg",
+                "-protocol_whitelist",
+                "tcp,file,http,crypto,data",
+                "-i",
+                self.url,
+                "-af",
+                f"adelay={delay}|{delay}",
+                "-acodec",
+                "aac",  # 输出 PCM 格式
+                "-loglevel",
+                "quiet",
+                "-y",
+                audio_path,
             ]
         else:
             cmd = [
-                'ffmpeg',
-                '-ss', f'{delay_seconds}',
-                '-protocol_whitelist', 'tcp,file,http,crypto,data',
-                '-i', self.url,
-                '-acodec', 'aac',  # 输出 PCM 格式
-                '-loglevel', 'quiet',
-                '-y',
-                audio_path
+                "ffmpeg",
+                "-ss",
+                f"{delay_seconds}",
+                "-protocol_whitelist",
+                "tcp,file,http,crypto,data",
+                "-i",
+                self.url,
+                "-acodec",
+                "aac",  # 输出 PCM 格式
+                "-loglevel",
+                "quiet",
+                "-y",
+                audio_path,
             ]
-        print(f'ffmpeg cmd: {cmd}')
+        print(f"ffmpeg cmd: {cmd}")
         self.process = subprocess.Popen(cmd)
 
     def stop(self):
@@ -105,7 +128,6 @@ class ffmpegReader(object):
         # self.size = (2560, 1440)
         self.size = size
 
-
         # assert input_fps in [30, 60]
 
         # self.skip_current = False
@@ -115,33 +137,49 @@ class ffmpegReader(object):
     def _start_ffmpeg_video(self):
         if "http" in self.url or "m3u8" in self.url:
             cmd = [
-                'ffmpeg',
-                '-copyts',
-                '-c:v', 'h264_cuvid',
-                '-live_start_index', '0',
-                '-protocol_whitelist', 'tcp,file,http,crypto,data',
-                '-i', self.url,
+                "ffmpeg",
+                "-copyts",
+                "-c:v",
+                "h264_cuvid",
+                "-live_start_index",
+                "0",
+                "-protocol_whitelist",
+                "tcp,file,http,crypto,data",
+                "-i",
+                self.url,
                 # '-threads', '1',
-                '-r', "30",
-                '-f', 'image2pipe',
-                '-pix_fmt', 'bgr24',
-                '-vcodec', 'rawvideo', '-',
+                "-r",
+                "30",
+                "-f",
+                "image2pipe",
+                "-pix_fmt",
+                "bgr24",
+                "-vcodec",
+                "rawvideo",
+                "-",
                 # '-v', 'info'
             ]
         else:
             cmd = [
-                'ffmpeg',
-                '-c:v', 'h264_cuvid',
-                '-i', self.url,
+                "ffmpeg",
+                "-c:v",
+                "h264_cuvid",
+                "-i",
+                self.url,
                 # '-threads', '1',
-                '-r', "30",
-                '-f', 'image2pipe',
-                '-pix_fmt', 'bgr24',
-                '-vcodec', 'rawvideo', '-'
+                "-r",
+                "30",
+                "-f",
+                "image2pipe",
+                "-pix_fmt",
+                "bgr24",
+                "-vcodec",
+                "rawvideo",
+                "-",
             ]
-        self.process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-    
-
+        self.process = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
+        )
 
     def next(self):
         image = self._next()
@@ -155,12 +193,14 @@ class ffmpegReader(object):
 
         try:
             raw_image = self.process.stdout.read(self.size[0] * self.size[1] * 3)
-            image = np.frombuffer(raw_image, dtype=np.uint8).reshape((self.size[1], self.size[0], 3))
+            image = np.frombuffer(raw_image, dtype=np.uint8).reshape(
+                (self.size[1], self.size[0], 3)
+            )
             return image
         except Exception as e:
             print(f"Error reading frame: {e}")
             return None
-        
+
     def stop(self):
         """停止FFmpeg进程"""
         if self.process is not None and self.process.poll() is None:
@@ -168,7 +208,10 @@ class ffmpegReader(object):
             self.process.wait()
             self.process = None
 
-def write_audio_video_to_stream(video_reader, audio_reader, output_path, video_size=(1920, 1080), fps=30):
+
+def write_audio_video_to_stream(
+    video_reader, audio_reader, output_path, video_size=(1920, 1080), fps=30
+):
     """
     将音视频数据逐帧写入新的文件中。
 
@@ -181,20 +224,32 @@ def write_audio_video_to_stream(video_reader, audio_reader, output_path, video_s
 
     # 使用 FFmpeg 合并音视频数据
     cmd = [
-        'ffmpeg',
-        '-f', 'rawvideo',
-        '-vcodec', 'rawvideo',
-        '-s', f'1920x1080',  # 视频尺寸
-        '-pix_fmt', 'bgr24',  # 指定像素格式
-        '-r', 30,  # 帧率
-        '-i', '-',  # 输入视频数据
-        '-i', '-',  # 输入音频数据
-        '-c:v', 'libx264',  # 视频编码器
-        '-preset', 'ultrafast',  # 编码速度
-        '-c:a', 'aac',  # 音频编码器
-        '-strict', 'experimental',  # 允许实验性编码器
-        '-b:a', '128k',  # 音频比特率
-        output_path  # 输出文件路径
+        "ffmpeg",
+        "-f",
+        "rawvideo",
+        "-vcodec",
+        "rawvideo",
+        "-s",
+        f"1920x1080",  # 视频尺寸
+        "-pix_fmt",
+        "bgr24",  # 指定像素格式
+        "-r",
+        30,  # 帧率
+        "-i",
+        "-",  # 输入视频数据
+        "-i",
+        "-",  # 输入音频数据
+        "-c:v",
+        "libx264",  # 视频编码器
+        "-preset",
+        "ultrafast",  # 编码速度
+        "-c:a",
+        "aac",  # 音频编码器
+        "-strict",
+        "experimental",  # 允许实验性编码器
+        "-b:a",
+        "128k",  # 音频比特率
+        output_path,  # 输出文件路径
     ]
 
     process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
@@ -222,6 +277,7 @@ def write_audio_video_to_stream(video_reader, audio_reader, output_path, video_s
         # 停止 FFmpeg 进程
         video_reader.stop()
         audio_reader.stop()
+
 
 if __name__ == "__main__":
     pass

@@ -12,6 +12,7 @@ def sub_task(func):
 
     return wrapper
 
+
 def iteration_timer(function_name=None, action_name=None):
     def decorator(func):
         count = 0  # 初始化计数器
@@ -30,5 +31,7 @@ def iteration_timer(function_name=None, action_name=None):
                 action_name == ""
             # print(f"{function_name} {action_name} iteration {count} took {elapsed_time:.6f} seconds.")
             return result
+
         return wrapper
+
     return decorator

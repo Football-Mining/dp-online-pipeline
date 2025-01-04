@@ -3,30 +3,33 @@ import sys
 import cv2
 import numpy as np
 import math
+
 # from ultralytics import YOLOv10, YOLO
 from ultralytics import YOLO
 
 # from roboflowoak import RoboflowOak
 
+
 def mask_points(results, quad_points):
-        """
-        将检测结果中的点限制在一个四边形内部。
-        :param results: 包含检测结果的点列表，每个点为 (x, y)
-        :param quad_points: 四边形的四个顶点坐标 [(x1, y1), (x2, y2), (x3, y3), (x4, y4)]
-        :return: 在四边形内部的点列表
-        """
-        filtered_results = []
+    """
+    将检测结果中的点限制在一个四边形内部。
+    :param results: 包含检测结果的点列表，每个点为 (x, y)
+    :param quad_points: 四边形的四个顶点坐标 [(x1, y1), (x2, y2), (x3, y3), (x4, y4)]
+    :return: 在四边形内部的点列表
+    """
+    filtered_results = []
 
-        # 检查每个点是否在四边形内部
-        for point in results:
-            # print("________")
-            # print(point, is_point_inside_polygon(point, quad_points))
-            # print(quad_points)
-            # print("________\n")
-            if is_point_inside_polygon(point, quad_points):
-                filtered_results.append(point)
+    # 检查每个点是否在四边形内部
+    for point in results:
+        # print("________")
+        # print(point, is_point_inside_polygon(point, quad_points))
+        # print(quad_points)
+        # print("________\n")
+        if is_point_inside_polygon(point, quad_points):
+            filtered_results.append(point)
 
-        return filtered_results
+    return filtered_results
+
 
 def is_point_inside_polygon(point, polygon):
     """
@@ -52,11 +55,13 @@ def is_point_inside_polygon(point, polygon):
 
     return inside
 
+
 def draw_parsed_boxes(image, boxes, color=None):
-        if color is None:
-            color = (0, 0, 255)
-        for box in boxes:
-            cv2.circle(image, tuple(box), 10, (0, 0, 255), -1)
+    if color is None:
+        color = (0, 0, 255)
+    for box in boxes:
+        cv2.circle(image, tuple(box), 10, (0, 0, 255), -1)
+
 
 class BaseDetector(object):
     def __init__(self, direction=None, to_skip=0):
@@ -75,11 +80,13 @@ class BaseDetector(object):
         orig_image = image
         if crop_box is not None:
             if direction is None:
-                raise ValueError("direction must be specified when crop_box is specified")
+                raise ValueError(
+                    "direction must be specified when crop_box is specified"
+                )
             if direction == "left":
-                image = image[crop_box[1]:, crop_box[0]:, :]
+                image = image[crop_box[1] :, crop_box[0] :, :]
             else:
-                image = image[crop_box[1]:, :crop_box[0], :]
+                image = image[crop_box[1] :, : crop_box[0], :]
         boxes = self._predict(image)
         if crop_box is not None:
             if direction == "left":
@@ -90,9 +97,9 @@ class BaseDetector(object):
             draw_parsed_boxes(orig_image, boxes, color=(0, 0, 255))
 
         self.last = boxes
-        
+
         return boxes
-    
+
     def draw_detections(self, image, detections):
         for box in detections.boxes:
             x1, y1, x2, y2 = box.xyxy[0].tolist()
@@ -107,9 +114,17 @@ class BaseDetector(object):
             # 绘制标签
             label = f"{class_name}: {conf:.2f}"
             text_size, _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-            cv2.rectangle(image, (x1, y1 - text_size[1] - 5), (x1 + text_size[0], y1), (0, 255, 0), -1)
-            cv2.putText(image, label, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
-    
+            cv2.rectangle(
+                image,
+                (x1, y1 - text_size[1] - 5),
+                (x1 + text_size[0], y1),
+                (0, 255, 0),
+                -1,
+            )
+            cv2.putText(
+                image, label, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1
+            )
+
     def predict_and_draw_detections(self, image):
         detections = self.model.predict(source=image, verbose=False)[0]
         for box in detections.boxes:
@@ -125,37 +140,43 @@ class BaseDetector(object):
             # 绘制标签
             label = f"{class_name}: {conf:.2f}"
             text_size, _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-            cv2.rectangle(image, (x1, y1 - text_size[1] - 5), (x1 + text_size[0], y1), (0, 255, 0), -1)
-            cv2.putText(image, label, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+            cv2.rectangle(
+                image,
+                (x1, y1 - text_size[1] - 5),
+                (x1 + text_size[0], y1),
+                (0, 255, 0),
+                -1,
+            )
+            cv2.putText(
+                image, label, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1
+            )
 
         return image
 
-
     def map_points(self, results, stitcher, direction=None, court_points=None):
-        
+
         direction = direction if direction is not None else self.direction
 
         if direction is None:
             raise Exception("direction is None")
-            
+
         panorama_points = []
         for point in results:
             try:
-                panorama_points.append(list(map(int, stitcher.map_point_to_parorama(point, direction, True))))
+                panorama_points.append(
+                    list(
+                        map(int, stitcher.map_point_to_parorama(point, direction, True))
+                    )
+                )
             except:
                 continue
 
         if court_points is not None:
             panorama_points = mask_points(panorama_points, court_points)
         return panorama_points
-    
+
     def draw_det(self, image):
         results = self._predict(image)
-
-
-    
-        
-
 
 
 class PlayerDetector(BaseDetector):
@@ -164,24 +185,26 @@ class PlayerDetector(BaseDetector):
         # self.model = YOLOv10("yolov10m.pt")
         self.model = YOLO("weights/yolov8n.pt")
 
-
     def _predict(self, image):
-        
 
-        results = self.model.predict(source=image, verbose=False)  # save predictions as labels
-        
+        results = self.model.predict(
+            source=image, verbose=False
+        )  # save predictions as labels
+
         boxes = np.array(results[0].boxes.xywh.cpu())
         # boxes = [[int(boxes[i][0] - boxes[i][2] / 2), int(boxes[i][1] - boxes[i][3] / 2), int(boxes[i][0] + boxes[i][2] / 2), int(boxes[i][1] + boxes[i][3] / 2), confidences[i]] for i in range(len(boxes)) if not classes[i]]
 
-        
         # print(boxes)
         classes = np.array(results[0].boxes.cls.cpu())
 
-        boxes = [list(map(int, list([boxes[i][0], boxes[i][1] + boxes[i][3] / 2]))) for i in range(len(boxes)) if not classes[i]]  # only return people boxes of which id is 0
-        
+        boxes = [
+            list(map(int, list([boxes[i][0], boxes[i][1] + boxes[i][3] / 2])))
+            for i in range(len(boxes))
+            if not classes[i]
+        ]  # only return people boxes of which id is 0
+
         # print(boxes)
         return boxes
-
 
 
 class BallDetector(BaseDetector):
@@ -191,7 +214,9 @@ class BallDetector(BaseDetector):
         self.threshold = threshold
 
     def _predict(self, image):
-        results = self.model.predict(source=image, verbose=False)  # save predictions as labels
+        results = self.model.predict(
+            source=image, verbose=False
+        )  # save predictions as labels
         boxes = np.array(results[0].boxes.xywh.cpu())
         confidences = np.array(results[0].boxes.conf.cpu())
 
@@ -202,10 +227,11 @@ class BallDetector(BaseDetector):
 
         # print(boxes, confidences, classes)
 
-        return [list(map(int, list(boxes[i][:2]))) for i in range(len(boxes)) if (not classes[i] and confidences[i] >= self.threshold)]  
-
-
-
+        return [
+            list(map(int, list(boxes[i][:2])))
+            for i in range(len(boxes))
+            if (not classes[i] and confidences[i] >= self.threshold)
+        ]
 
 
 # class BaseDetector(object):
@@ -336,6 +362,7 @@ class BallDetector(BaseDetector):
 if __name__ == "__main__":
     from utils import get_and_init_stitcher, get_points_config
     import json
+
     # from dp_stitching.details_stitcher import DetailsStitcher
     # from tqdm import tqdm
 
@@ -354,18 +381,24 @@ if __name__ == "__main__":
     points_config = json.load(open(f"{device_id}/{match_id}/points_config.json", "r"))
 
     stitcher = get_and_init_stitcher(device_id)
-    
+
     img_left = cv2.imread(f"{device_id}/init_frame_left.png")
     img_right = cv2.imread(f"{device_id}/init_frame_right.png")
     # panorama = stitcher.stitch(img_left, img_right)
 
-
     # # boxes = ball_det.predict(img, draw=True)
-    boxes_left = play_det.predict(img_left, draw=True, crop_box=points_config["left_crop_size"], direction="left")
+    boxes_left = play_det.predict(
+        img_left, draw=True, crop_box=points_config["left_crop_size"], direction="left"
+    )
     # boxes_left = play_det.map_points(boxes_left, stitcher, direction="left", court_points=points_config["polygon"])
 
     # # boxes = ball_det.predict(img, draw=True)
-    boxes_right = play_det.predict(img_right, draw=True, crop_box=points_config["right_crop_size"], direction="right")
+    boxes_right = play_det.predict(
+        img_right,
+        draw=True,
+        crop_box=points_config["right_crop_size"],
+        direction="right",
+    )
     # boxes_right = play_det.map_points(boxes_right, stitcher, direction="right", court_points=points_config["polygon"])
 
     # print(boxes_left, boxes_right)
@@ -373,23 +406,20 @@ if __name__ == "__main__":
     cv2.imwrite("test_left_det.png", img_left)
     cv2.imwrite("test_right_det.png", img_right)
 
-    
     # draw_parsed_boxes(panorama, boxes_left + boxes_right)
     # cv2.imwrite("panorama1.png", panorama)
-
 
     # img_left = img_left[438:, 323:, :]
     # img_right = img_right[485:, 0:1234, :]
     # cv2.imwrite("test_left1.png", img_left)
     # cv2.imwrite("img_right1.png", img_right)
 
-    boxes = ball_det.predict(img_left, draw=True, crop_box=points_config["left_crop_size"], direction="left")
+    boxes = ball_det.predict(
+        img_left, draw=True, crop_box=points_config["left_crop_size"], direction="left"
+    )
     cv2.imwrite("test_left_ball.png", img_left)
 
-
-
     # print(boxes)
-
 
     # get court mask
     # left_mask = cv2.imread("left.jpg", 0)
@@ -409,6 +439,3 @@ if __name__ == "__main__":
     #     panorama = ball_det.draw_det(points, panorama)
     #     out.write(panorama)
     # out.release()
-
-
-

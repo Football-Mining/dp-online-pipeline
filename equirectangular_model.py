@@ -4,8 +4,8 @@ import numpy as np
 from tqdm import tqdm
 import time
 
-x_horizon = 210     # x轴方向视野的角度（两个镜头融合起来，即全景视角中的视野宽度）
-y_horizon = 70     # 同上，y轴方向
+x_horizon = 210  # x轴方向视野的角度（两个镜头融合起来，即全景视角中的视野宽度）
+y_horizon = 70  # 同上，y轴方向
 
 MATRIX_SAMPLE_RATE = 1
 
@@ -42,9 +42,9 @@ def xyz2lonlat(xyz):
 
 
 def lonlat2XY(lonlat, shape):
-    X = (lonlat[..., 0:1] / (x_horizon / 360. * np.pi) + 0.5) * (shape[1] - 1)
+    X = (lonlat[..., 0:1] / (x_horizon / 360.0 * np.pi) + 0.5) * (shape[1] - 1)
     # print(X)
-    Y = (lonlat[..., 1:] / (y_horizon / 360. * np.pi) + 0.5) * (shape[0] - 1)
+    Y = (lonlat[..., 1:] / (y_horizon / 360.0 * np.pi) + 0.5) * (shape[0] - 1)
 
     lst = [X, Y]
     out = np.concatenate(lst, axis=-1)
@@ -71,21 +71,21 @@ class EquirectangularModel:
         # self._img[:, :w/8, :] = cp[:, 7*w/8:, :]
         # self._img[:, w/8:, :] = cp[:, :7*w/8, :]
 
-
-
-
-
     def get_funcs(self):
         if self.y_func is None:
 
-            self.y_func = lambda x: int(((-5.625*(x/self._width-0.5)**2+0.47))*self._height)  # 输入x得到y，是一条二次函数曲线，在中场的时候最低点
+            self.y_func = lambda x: int(
+                ((-5.625 * (x / self._width - 0.5) ** 2 + 0.47)) * self._height
+            )  # 输入x得到y，是一条二次函数曲线，在中场的时候最低点
 
-            self.fov_func = lambda x: (48 - 19 * abs(x - self._width // 2) / (self._width / 6))  # 输入x得到fov，绝对值一次函数，在中场的时候视角最远
+            self.fov_func = lambda x: (
+                48 - 19 * abs(x - self._width // 2) / (self._width / 6)
+            )  # 输入x得到fov，绝对值一次函数，在中场的时候视角最远
 
     def GetPerspective(self, image):
         self.get_size(image)
         # print(self.XY[0])
-        
+
         self.XY = self.XY.astype(np.int32).astype(np.float32)
         # print(self.XY[0])
         persp = cv2.remap(image, self.XY[..., 0], self.XY[..., 1], cv2.INTER_CUBIC)
@@ -94,7 +94,7 @@ class EquirectangularModel:
 
     def GetPerspective_cuda(self, image):
         self.get_size(image)
-        
+
         # 将输入图像上传到 GPU
         d_src = cv2.cuda_GpuMat(image)
         # d_src.upload(image)
@@ -134,20 +134,32 @@ class EquirectangularModel:
 
         t0 = time.time()
         # rotation_angle = -THETA / 45. * 20
-        rotation_angle = -THETA / 45. * 10
+        rotation_angle = -THETA / 45.0 * 10
         # print(rotation_angle)
-        rotate = np.array([
-            [np.cos(np.radians(rotation_angle)), -np.sin(np.radians(rotation_angle)), 0],
-            [np.sin(np.radians(rotation_angle)), np.cos(np.radians(rotation_angle)), 0],
-            [0, 0, 1]
-        ])
+        rotate = np.array(
+            [
+                [
+                    np.cos(np.radians(rotation_angle)),
+                    -np.sin(np.radians(rotation_angle)),
+                    0,
+                ],
+                [
+                    np.sin(np.radians(rotation_angle)),
+                    np.cos(np.radians(rotation_angle)),
+                    0,
+                ],
+                [0, 0, 1],
+            ]
+        )
         xyz = xyz @ rotate
 
         # print("rotate", time.time() - t0)
 
         t0 = time.time()
         lonlat = xyz2lonlat(xyz)
-        self.XY = lonlat2XY(lonlat, shape=[self._height, self._width]).astype(np.float32)
+        self.XY = lonlat2XY(lonlat, shape=[self._height, self._width]).astype(
+            np.float32
+        )
         # print("lonlat2XY", time.time() - t0)
 
         if save:
@@ -155,38 +167,65 @@ class EquirectangularModel:
                 os.mkdir("matrices")
             np.save("matrices/mat_{}.npy".format(self.x), self.XY)
 
-    def set_funcs_with_init_settings(self, left_most_setting, middle_point_setting, right_most_setting):
+    def set_funcs_with_init_settings(
+        self, left_most_setting, middle_point_setting, right_most_setting
+    ):
         # 使得视角和y值线性变化
         # print(left_most_setting)
-        a_left = (left_most_setting[1] - middle_point_setting[1]) / ((middle_point_setting[0] - left_most_setting[0]) ** 2)
-        a_right = (right_most_setting[1] - middle_point_setting[1]) / ((middle_point_setting[0] - right_most_setting[0]) ** 2)
+        a_left = (left_most_setting[1] - middle_point_setting[1]) / (
+            (middle_point_setting[0] - left_most_setting[0]) ** 2
+        )
+        a_right = (right_most_setting[1] - middle_point_setting[1]) / (
+            (middle_point_setting[0] - right_most_setting[0]) ** 2
+        )
 
-        y_func_left = lambda x: (middle_point_setting[1] + a_left * (x - middle_point_setting[0]) ** 2)
-        y_func_right = lambda x: (middle_point_setting[1] + a_right * (x - middle_point_setting[0]) ** 2)
+        y_func_left = lambda x: (
+            middle_point_setting[1] + a_left * (x - middle_point_setting[0]) ** 2
+        )
+        y_func_right = lambda x: (
+            middle_point_setting[1] + a_right * (x - middle_point_setting[0]) ** 2
+        )
         # y_func_left = lambda x: (left_most_setting[1] + (middle_point_setting[1] - left_most_setting[1]) * (x - left_most_setting[0]) / (middle_point_setting[0] - left_most_setting[0]))
         # y_func_right = lambda x: (middle_point_setting[1] + (right_most_setting[1] - middle_point_setting[1]) * (1 - (right_most_setting[0] - x) / (right_most_setting[0] - middle_point_setting[0])))
 
-        fov_func_left = lambda x: (left_most_setting[2] + (middle_point_setting[2] - left_most_setting[2]) * (x - left_most_setting[0]) / (middle_point_setting[0] - left_most_setting[0]))
-        fov_func_right = lambda x: (middle_point_setting[2] + (right_most_setting[2] - middle_point_setting[2]) * (1- (right_most_setting[0] - x) / (right_most_setting[0] - middle_point_setting[0])))
-
+        fov_func_left = lambda x: (
+            left_most_setting[2]
+            + (middle_point_setting[2] - left_most_setting[2])
+            * (x - left_most_setting[0])
+            / (middle_point_setting[0] - left_most_setting[0])
+        )
+        fov_func_right = lambda x: (
+            middle_point_setting[2]
+            + (right_most_setting[2] - middle_point_setting[2])
+            * (
+                1
+                - (right_most_setting[0] - x)
+                / (right_most_setting[0] - middle_point_setting[0])
+            )
+        )
 
         # self.fov_func = fov_func_left
         # self.y_func = y_func_left
-        self.fov_func = lambda x: (fov_func_left(x) if x <= middle_point_setting[0] else fov_func_right(x)) 
-        self.y_func = lambda x: (y_func_left(x) if x <= middle_point_setting[0] else y_func_right(x)) 
-
-
+        self.fov_func = lambda x: (
+            fov_func_left(x) if x <= middle_point_setting[0] else fov_func_right(x)
+        )
+        self.y_func = lambda x: (
+            y_func_left(x) if x <= middle_point_setting[0] else y_func_right(x)
+        )
 
     def get_xyz(self, FOV):
         height, width = 1080, 1920
         f = 0.5 * width * 1 / np.tan(0.5 * FOV / 180.0 * np.pi)
         cx = (width - 1) / 2.0
         cy = (height - 1) / 2.0
-        K = np.array([
-            [f, 0, cx],
-            [0, f, cy],
-            [0, 0, 1],
-        ], np.float32)
+        K = np.array(
+            [
+                [f, 0, cx],
+                [0, f, cy],
+                [0, 0, 1],
+            ],
+            np.float32,
+        )
         K_inv = np.linalg.inv(K)
         x = np.arange(width)
         y = np.arange(height)
@@ -203,7 +242,9 @@ class EquirectangularModel:
     def get_max_fov(self, y, min_y, max_y, y_length):
         # print(y, min_y, max_y, y_length)
         # print((y - min_y) * 180 / y_length, (max_y - y) * 180 / y_length)
-        max_fov = min(abs(y - min_y) * 180 / y_length, abs(max_y - y) * 180 / y_length)-5
+        max_fov = (
+            min(abs(y - min_y) * 180 / y_length, abs(max_y - y) * 180 / y_length) - 5
+        )
         return max_fov
 
     def get_cood_from_x(self, x):
@@ -215,9 +256,9 @@ class EquirectangularModel:
             y = int(self.y_func(x))
             # print(x, y)
             # print(self.fov_func(x))
-        THETA = ((x - self._width / 2.) / (self._width / 2.)) * 90
+        THETA = ((x - self._width / 2.0) / (self._width / 2.0)) * 90
         # print(THETA)
-        PHI =  -((y - self._height / 2.) / (self._height / 2.)) * 45
+        PHI = -((y - self._height / 2.0) / (self._height / 2.0)) * 45
         # print(PHI)
 
         self.x = x
@@ -227,16 +268,16 @@ class EquirectangularModel:
         # print(x, y, fov)
         self.get_xyz(fov)
         self.get_matrix(THETA, PHI, save=False)
-            # self.XY = np.load("mat.npy")
+        # self.XY = np.load("mat.npy")
 
         return self.GetPerspective(image)
-    
+
     def get_mat(self, x, y=None, fov=None):
         t0 = time.time()
         if y is None:
             y = int(self.y_func(x))
-        THETA = ((x - self._width / 2.) / (self._width / 2.)) * 90
-        PHI = -((y - self._height / 2.) / (self._height / 2.)) * 45
+        THETA = ((x - self._width / 2.0) / (self._width / 2.0)) * 90
+        PHI = -((y - self._height / 2.0) / (self._height / 2.0)) * 45
         if fov is None:
             fov = self.fov_func(x)
         # print("compute time", time.time() - t0)
@@ -256,20 +297,27 @@ class EquirectangularModel:
         # print("get size time: {}".format(t1-t0))
         if y is None:
             y = int(self.y_func(x))
-        
 
         if self.x is None or self.y is None or self.x != x or self.y != y:
 
             self.x = x
             self.y = y
-            if fast_mode and os.path.exists("matrices/mat_{}.npy".format(x//MATRIX_SAMPLE_RATE*MATRIX_SAMPLE_RATE)):
+            if fast_mode and os.path.exists(
+                "matrices/mat_{}.npy".format(
+                    x // MATRIX_SAMPLE_RATE * MATRIX_SAMPLE_RATE
+                )
+            ):
                 # print("shit")
-                self.XY = np.load("matrices/mat_{}.npy".format(x//MATRIX_SAMPLE_RATE*MATRIX_SAMPLE_RATE))
+                self.XY = np.load(
+                    "matrices/mat_{}.npy".format(
+                        x // MATRIX_SAMPLE_RATE * MATRIX_SAMPLE_RATE
+                    )
+                )
                 t2 = time.time()
                 # print("load matrix time: {}".format(t2-t1))
             else:
-                THETA = ((x - self._width / 2.) / (self._width / 2.)) * 90
-                PHI = -((y - self._height / 2.) / (self._height / 2.)) * 45
+                THETA = ((x - self._width / 2.0) / (self._width / 2.0)) * 90
+                PHI = -((y - self._height / 2.0) / (self._height / 2.0)) * 45
                 if fov is None:
                     fov = self.fov_func(x)
                 self.get_xyz(fov)
@@ -285,25 +333,23 @@ class EquirectangularModel:
         # print("GetPerspective time: {}".format(t6-t5))
         return result
 
-
     def get_angles_from_points(self, x, y):
-        THETA = ((x - self._width / 2.) / (self._width / 2.)) * 90
+        THETA = ((x - self._width / 2.0) / (self._width / 2.0)) * 90
         # print(THETA)
-        PHI = -((y - self._height / 2.) / (self._height / 2.)) * 45
+        PHI = -((y - self._height / 2.0) / (self._height / 2.0)) * 45
         return THETA, PHI
 
 
-
-if __name__ == '__main__':
+if __name__ == "__main__":
 
     import json
     from utils import get_points_config_path, get_regist_imgs, get_and_init_stitcher
-    
+
     config_path = "test_config.json"
     dp_live_config = json.load(open(config_path, "r"))
     match_id = dp_live_config["match_id"]
     device_id = dp_live_config["device_id"]
-    
+
     left_channel = f"{device_id}_{match_id}_left"
     right_channel = f"{device_id}_{match_id}_right"
 
@@ -311,7 +357,11 @@ if __name__ == '__main__':
     e = EquirectangularModel()
     panorama = cv2.imread("panorama_new.png", cv2.IMREAD_COLOR)
     e.GetPerspectiveFromCoordStupid(panorama, 1500)
-    e.set_funcs_with_init_settings(points_config["left_most_setting"], points_config["middle_point_setting"], points_config["right_most_setting"])
+    e.set_funcs_with_init_settings(
+        points_config["left_most_setting"],
+        points_config["middle_point_setting"],
+        points_config["right_most_setting"],
+    )
 
     # t0 = time.time()
     # e.get_mat(1500)
@@ -322,12 +372,18 @@ if __name__ == '__main__':
 
     # e.set_funcs_with_init_settings(left_most_setting, middle_point_setting, right_most_setting)
 
-    res = e.GetPerspectiveFromCoordStupid(panorama, points_config["left_most_setting"][0])
-    cv2.imwrite('test_left_most2.png', res)
-    res = e.GetPerspectiveFromCoordStupid(panorama, points_config["middle_point_setting"][0])
-    cv2.imwrite('test_middle2.png', res)
-    res = e.GetPerspectiveFromCoordStupid(panorama, points_config["right_most_setting"][0])
-    cv2.imwrite('test_right_most2.png', res)
+    res = e.GetPerspectiveFromCoordStupid(
+        panorama, points_config["left_most_setting"][0]
+    )
+    cv2.imwrite("test_left_most2.png", res)
+    res = e.GetPerspectiveFromCoordStupid(
+        panorama, points_config["middle_point_setting"][0]
+    )
+    cv2.imwrite("test_middle2.png", res)
+    res = e.GetPerspectiveFromCoordStupid(
+        panorama, points_config["right_most_setting"][0]
+    )
+    cv2.imwrite("test_right_most2.png", res)
 
     """调参数"""
     # persp = e.GetPerspectiveFromCoordStupid(img, x_value)
@@ -342,5 +398,3 @@ if __name__ == '__main__':
 
     # """保存矩阵"""
     # e.save_all_matrices(range(700, 1700, MATRIX_SAMPLE_RATE))
-
-

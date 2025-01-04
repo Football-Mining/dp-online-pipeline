@@ -16,60 +16,80 @@ def combine_remaps(map1_xy, map2_xy, map3_xy=None):
 
     return combined_map_xy
 
+
 def concat_imgs(img1, img2):
     assert img1.shape == img2.shape, "Images must have the same shape"
 
-    final_image = np.zeros((img1.shape[0], img1.shape[1] * 2, img1.shape[2]), dtype=img1.dtype)
+    final_image = np.zeros(
+        (img1.shape[0], img1.shape[1] * 2, img1.shape[2]), dtype=img1.dtype
+    )
 
-    final_image[:, :img1.shape[1], :] = img1
-    final_image[:, img1.shape[1]:, :] = img2
+    final_image[:, : img1.shape[1], :] = img1
+    final_image[:, img1.shape[1] :, :] = img2
 
     return final_image
 
+
 def concat_maps(imgs):
-    max_height = 0 # find the max width of all the images
-    total_width = 0 # the total height of the images (vertical stacking)
+    max_height = 0  # find the max width of all the images
+    total_width = 0  # the total height of the images (vertical stacking)
 
     for image in imgs:
         # find the max width of all the images
-        max_height = max(max_height,image.shape[0])
+        max_height = max(max_height, image.shape[0])
         # add the height of the current image to the total height
         total_width += image.shape[1]
-    
-    # create a new array with a size large enough to contain all the images
-    final_image = np.zeros((total_width,max_height,imgs[0].shape[-1]))
 
-    current_x = 0 # keep track of where your current image was last placed in the x coordinate
+    # create a new array with a size large enough to contain all the images
+    final_image = np.zeros((total_width, max_height, imgs[0].shape[-1]))
+
+    current_x = (
+        0  # keep track of where your current image was last placed in the x coordinate
+    )
     for image in imgs:
         # add an image to the final array and increment the x coordinate
-        final_image[current_x:image.shape[1]+current_x,:image.shape[0],:] = image.transpose(1,0,2)
+        final_image[current_x : image.shape[1] + current_x, : image.shape[0], :] = (
+            image.transpose(1, 0, 2)
+        )
         current_x += image.shape[1]
-    
-    return final_image.transpose(1,0,2)
+
+    return final_image.transpose(1, 0, 2)
 
 
 class ImageTransformer:
     """
     stitcher和EquirectangularModel的更高层封装，从原图直接转换为目标图，跳过全景图生成
     """
-    def __init__(self, points_config, dp_live_config, size=(1920, 1080), warper_type=None, gpu_id=None):
+
+    def __init__(
+        self,
+        points_config,
+        dp_live_config,
+        size=(1920, 1080),
+        warper_type=None,
+        gpu_id=None,
+    ):
 
         self.warper_type = warper_type
         self.dp_live_config = dp_live_config
 
         self.points_config = points_config
         self.e = EquirectangularModel()
-        self.e.set_funcs_with_init_settings(points_config["left_most_setting"], points_config["middle_point_setting"], points_config["right_most_setting"])
+        self.e.set_funcs_with_init_settings(
+            points_config["left_most_setting"],
+            points_config["middle_point_setting"],
+            points_config["right_most_setting"],
+        )
         self.init_remap()
         self.mat_dir = os.path.join(MATRICES_ROOT_DIR, dp_live_config["match_id"])
-        
-
 
     def init_remap(self):
         if self.warper_type is None:
             self.stitcher = get_and_init_stitcher(self.dp_live_config["device_id"])
         else:
-            self.stitcher = get_and_init_stitcher(self.dp_live_config["device_id"], warper_type=self.warper_type)
+            self.stitcher = get_and_init_stitcher(
+                self.dp_live_config["device_id"], warper_type=self.warper_type
+            )
 
         left_img, right_img = get_regist_imgs()
         # print(left_img.shape)
@@ -81,12 +101,36 @@ class ImageTransformer:
             pass
 
         self.e.GetPerspectiveFromCoordStupid(init_panorama, 1500)
-        warped_imgs = list(self.stitcher.stitcher.warp_imgs([left_img, right_img], self.stitcher.cameras))
+        warped_imgs = list(
+            self.stitcher.stitcher.warp_imgs(
+                [left_img, right_img], self.stitcher.cameras
+            )
+        )
 
-        warped_maps = list(self.stitcher.stitcher.build_warp_maps([left_img, right_img], self.stitcher.cameras))
-        blend_maps = list(self.stitcher.stitcher.build_blend_maps(warped_imgs, (x for x in self.stitcher.seam_masks), self.stitcher.img_corners))
+        warped_maps = list(
+            self.stitcher.stitcher.build_warp_maps(
+                [left_img, right_img], self.stitcher.cameras
+            )
+        )
+        blend_maps = list(
+            self.stitcher.stitcher.build_blend_maps(
+                warped_imgs,
+                (x for x in self.stitcher.seam_masks),
+                self.stitcher.img_corners,
+            )
+        )
 
-        remapped_mask = [cv2.remap(self.stitcher.seam_masks[i], blend_maps[i], None, interpolation=cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT, borderValue=0).get() for i in range(2)]
+        remapped_mask = [
+            cv2.remap(
+                self.stitcher.seam_masks[i],
+                blend_maps[i],
+                None,
+                interpolation=cv2.INTER_NEAREST,
+                borderMode=cv2.BORDER_CONSTANT,
+                borderValue=0,
+            ).get()
+            for i in range(2)
+        ]
 
         self.left_warped_map = warped_maps[0]
         self.right_warped_map = warped_maps[1]
@@ -95,13 +139,11 @@ class ImageTransformer:
         self.left_remapped_mask = remapped_mask[0]
         self.right_remapped_mask = remapped_mask[1]
 
-
     def compute_img(self, origin_img, x, direction):
         remap = self.get_local_mat(x, f"{direction}_remap")
 
         result = gpu_remap(origin_img, remap, None, cv2.INTER_CUBIC)
         return result
-
 
     def save_remap(self, x):
         if not os.path.exists(MATRICES_ROOT_DIR):
@@ -116,11 +158,25 @@ class ImageTransformer:
         t1 = time.time()
         right_remap = combine_remaps(self.right_warped_map, self.right_blend_map, e_mat)
         t2 = time.time()
-        left_mask = cv2.remap(self.left_remapped_mask, e_mat, None, cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+        left_mask = cv2.remap(
+            self.left_remapped_mask,
+            e_mat,
+            None,
+            cv2.INTER_NEAREST,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=0,
+        )
         t3 = time.time()
         # print(left_mask.shape)
 
-        right_mask = cv2.remap(self.right_remapped_mask, e_mat, None, cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+        right_mask = cv2.remap(
+            self.right_remapped_mask,
+            e_mat,
+            None,
+            cv2.INTER_NEAREST,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=0,
+        )
         t4 = time.time()
         # print(f"{x} left_remap: {t1-t0}, right_remap: {t2-t1}, left_mask: {t3-t2}, right_mask: {t4-t3}")
         self.save_local_mat(right_remap, x, "right_remap")
@@ -139,7 +195,7 @@ class ImageTransformer:
 
     def save_local_mat(self, mat, x, mat_name):
         x = int(x)
-        
+
         return np.save(self.get_path(x, mat_name), mat)
 
     def get_local_mat(self, x, mat_name):
@@ -148,7 +204,7 @@ class ImageTransformer:
             mat = np.load(self.get_path(x, mat_name))
         except FileNotFoundError:
             print(f"File not found: {self.get_path(x, mat_name)}")
-            
+
         return mat
 
     def transform(self, left_img, right_img, x, y=None, fov=None):
@@ -160,7 +216,7 @@ class ImageTransformer:
         t0 = time.time()
         blender = cv2.detail_MultiBandBlender()
         blender.setNumBands(5)
-        blender.prepare((0,0,1920,1080))
+        blender.prepare((0, 0, 1920, 1080))
         # print(f"blender prepare time: {time.time() - t0}")
 
         t0 = time.time()
@@ -169,16 +225,16 @@ class ImageTransformer:
         res, _ = blender.blend(None, None)
         # print(f"blend time: {time.time() - t0}")
         return res
-    
+
     def precalculate(self):
         shutil.rmtree("/ssd/matrices")
         os.makedirs("/ssd/matrices")
         min_x = self.points_config["left_most_setting"][0]
         max_x = self.points_config["right_most_setting"][0]
         # max_x = min_x
-        for x in tqdm(range(min_x, max_x+1)):
+        for x in tqdm(range(min_x, max_x + 1)):
             self.save_remap(x)
-        
+
 
 # def save_to_db(mat, x, db_name="matrices.db"):
 #     conn = sqlite3.connect(db_name)
@@ -195,7 +251,7 @@ class ImageTransformer:
 #     mat_blob = cursor.fetchone()[0]
 #     conn.close()
 #     return np.frombuffer(mat_blob, dtype=np.float32).reshape(expected_shape)  # Adjust for your matrix type
-    
+
 
 # class ImageTransformerV1:
 #     """
@@ -210,7 +266,7 @@ class ImageTransformer:
 #         self.combined_remap = None
 #         self.precalculated_remaps = {}
 #         self.last_x = None
-    
+
 #     def init_remap(self, left_img, right_img, x=1500):
 #         init_panorama = self.stitcher.stitch(left_img, right_img)
 #         self.e.GetPerspectiveFromCoordStupid(init_panorama, 1500)
@@ -257,7 +313,6 @@ class ImageTransformer:
 #             self.save_remap(x)
 
 
-
 #     def save_remap(self, x):
 #         remap = combine_remaps(self.concat_warped_maps, self.merged_blend_map, self.e.get_mat(x))
 #         np.save(self.get_remap_save_path(x), remap)
@@ -282,12 +337,13 @@ class ImageTransformer:
 #         concated_img = concat_imgs(left_img, right_img)
 #         result = gpu_remap(concated_img, self.combined_remap, None)
 #         return result
-    
+
 #     def get_max_fov(self, y):
 #         min_y = self.stitcher.map_point_to_parorama((self.size[0], 0))[1]
 #         max_y = self.stitcher.map_point_to_parorama((self.size[0], self.size[1]))[1]
 #         return self.e.get_max_fov(y, min_y, max_y, self.e._height)
-    
+
+
 def gpu_remap(image, remap_matrix_x, remap_matrix_y, interpolation=cv2.INTER_NEAREST):
     t0 = time.time()
     d_src = cv2.cuda_GpuMat(image)
@@ -301,7 +357,7 @@ def gpu_remap(image, remap_matrix_x, remap_matrix_y, interpolation=cv2.INTER_NEA
         d_map1 = cv2.cuda_GpuMat(remap_matrix_x)
         d_map2 = cv2.cuda_GpuMat(remap_matrix_y)
     # print("upload mat time", time.time() - t0)
-    
+
     t0 = time.time()
     dst = cv2.cuda.remap(d_src, d_map1, d_map2, interpolation=interpolation)
     # print("remap time", time.time() - t0)
@@ -315,7 +371,7 @@ def gpu_remap(image, remap_matrix_x, remap_matrix_y, interpolation=cv2.INTER_NEA
 
 # if __name__ == "__main__":
 #     os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
-#     os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2'  
+#     os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2'
 #     import json
 #     dp_live_config = json.load(open("test_config.json", "r"))
 #     match_id = dp_live_config["match_id"]
@@ -342,5 +398,3 @@ def gpu_remap(image, remap_matrix_x, remap_matrix_y, interpolation=cv2.INTER_NEA
 
 
 #     # cv2.imwrite("combined_image_from_concat_mbb.png", test_result)
-
-    
