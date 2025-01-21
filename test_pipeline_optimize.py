@@ -41,8 +41,7 @@ left, right = reader.next()
 # 目标x坐标from cameraman
 target_x = 2200
 
-img_transformer.precalculate()
-
+# img_transformer.precalculate()
 while True:
     t0 = time.time()
     left = img_transformer.compute_img(left, target_x, "left")

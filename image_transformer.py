@@ -142,8 +142,12 @@ class ImageTransformer:
 
     def compute_img(self, origin_img, x, direction):
         remap = self.get_local_mat(x, f"{direction}_remap")
-
-        result = gpu_remap(origin_img, remap, None, cv2.INTER_CUBIC)
+        
+        try:
+            result = gpu_remap(origin_img, remap, None, cv2.INTER_CUBIC) # 4090: 0.005
+        except Exception as e:
+            print("gpu_remap error:", e)
+            result = cpu_remap(origin_img, remap, None, cv2.INTER_CUBIC) # 4090: 0.007-0.01
         return result
 
     def save_remap(self, x):
@@ -215,7 +219,7 @@ class ImageTransformer:
         # print(f"read time: {time.time() - t0}")
 
         t0 = time.time()
-        blender = cv2.detail_MultiBandBlender()
+        blender = cv2.detail_MultiBandBlender(try_gpu=0)
         blender.setNumBands(5)
         blender.prepare((0, 0, 1920, 1080))
         # print(f"blender prepare time: {time.time() - t0}")
@@ -223,6 +227,8 @@ class ImageTransformer:
         t0 = time.time()
         blender.feed(left_img, left_mask, np.zeros(2, np.int64))
         blender.feed(right_img, right_mask, np.zeros(2, np.int64))
+        # print(f"blender feed time: {time.time() - t0}")
+        t0 = time.time()
         res, _ = blender.blend(None, None)
         # print(f"blend time: {time.time() - t0}")
         return res
@@ -254,97 +260,11 @@ class ImageTransformer:
 #     conn.close()
 #     return np.frombuffer(mat_blob, dtype=np.float32).reshape(expected_shape)  # Adjust for your matrix type
 
-
-# class ImageTransformerV1:
-#     """
-#     stitcher和EquirectangularModel的更高层封装，从原图直接转换为目标图，跳过全景图生成
-#     """
-#     def __init__(self, points_config, size=(1920, 1080)):
-#         self.stitcher = get_and_init_stitcher()
-#         self.points_config = points_config
-#         self.e = EquirectangularModel()
-#         self.e.set_funcs_with_init_settings(points_config["left_most_setting"], points_config["middle_point_setting"], points_config["right_most_setting"])
-#         self.size = size
-#         self.combined_remap = None
-#         self.precalculated_remaps = {}
-#         self.last_x = None
-
-#     def init_remap(self, left_img, right_img, x=1500):
-#         init_panorama = self.stitcher.stitch(left_img, right_img)
-#         self.e.GetPerspectiveFromCoordStupid(init_panorama, 1500)
-
-#         warped_imgs = list(self.stitcher.stitcher.warp_imgs([left_img, right_img], self.stitcher.cameras))
-#         warped_maps = list(self.stitcher.stitcher.build_warp_maps([left_img, right_img], self.stitcher.cameras))
-#         blend_maps = list(self.stitcher.stitcher.build_blend_maps(warped_imgs, (x for x in self.stitcher.seam_masks), self.stitcher.img_corners))
-
-#         concat_warped_maps = concat_maps(warped_maps).astype(np.float32)
-#         concat_warped_maps[:, warped_maps[0].shape[1]:, 0] += left_img.shape[1]
-
-#         # concat_warped_img = cv2.remap(concat_raw_imgs, concat_warped_maps, None, cv2.INTER_CUBIC, borderMode=cv2.BORDER_REFLECT)
-#         # cv2.imwrite("assets/concat_warped_img.png", concat_warped_img)
-
-#         remapped_mask = [cv2.remap(self.stitcher.seam_masks[i], blend_maps[i], None, interpolation=cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT, borderValue=0).get() for i in range(2)]
-#         merged_blend_map = blend_maps[0]
-#         blend_maps[1][:, :, 0] += warped_maps[0].shape[1]
-
-#         # combined_remap = combine_remaps(concat_warped_maps, blend_maps[1])
-#         # right_blend_img = cv2.remap(concat_raw_imgs, combined_remap, None, cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
-#         # cv2.imwrite("assets/right_blend_img.png", right_blend_img)
-
-#         merged_blend_map[remapped_mask[0] == 0] = 0
-#         merged_blend_map[remapped_mask[1] != 0] = blend_maps[1][remapped_mask[1] != 0]
-
-#         self.concat_warped_maps = concat_warped_maps
-#         self.merged_blend_map = merged_blend_map
-
-#         init_panorama = self.stitcher.stitch(left_img, right_img)
-#         persp = self.e.GetPerspectiveFromCoordStupid(init_panorama, x)
-#         self.x = x
-#         # cv2.imwrite("panaroma.png", init_panorama)
-
-
-#         combined_remap = combine_remaps(concat_warped_maps, merged_blend_map, self.e.XY)
-#         self.combined_remap = combined_remap
-
-
-#     def precalculate(self):
-#         min_x = self.points_config["left_most_setting"][0]
-#         max_x = self.points_config["right_most_setting"][0]
-#         # max_x = min_x
-#         for x in tqdm(range(min_x, max_x+1)):
-#             self.save_remap(x)
-
-
-#     def save_remap(self, x):
-#         remap = combine_remaps(self.concat_warped_maps, self.merged_blend_map, self.e.get_mat(x))
-#         np.save(self.get_remap_save_path(x), remap)
-
-#     def get_remap_save_path(self, x):
-#         return f'matrices/remap_{x}.npy'
-
-#     def transform(self, left_img, right_img, x, y=None, fov=None):
-#         if self.combined_remap is None:
-#             self.init_remap(left_img, right_img)
-#         x = int(x)
-#         if self.x != x:
-#             t0 = time.time()
-#             if os.path.exists(self.get_remap_save_path(x)):
-#                 print("matrix found")
-#                 self.combined_remap = np.load(self.get_remap_save_path(x))
-#                 print(f"load time: {time.time() - t0}")
-#             else:
-#                 self.combined_remap = combine_remaps(self.concat_warped_maps, self.merged_blend_map, self.e.get_mat(x, y, fov))
-#                 print(f"compute time: {time.time() - t0}")
-#         self.x = x
-#         concated_img = concat_imgs(left_img, right_img)
-#         result = gpu_remap(concated_img, self.combined_remap, None)
-#         return result
-
-#     def get_max_fov(self, y):
-#         min_y = self.stitcher.map_point_to_parorama((self.size[0], 0))[1]
-#         max_y = self.stitcher.map_point_to_parorama((self.size[0], self.size[1]))[1]
-#         return self.e.get_max_fov(y, min_y, max_y, self.e._height)
-
+def cpu_remap(image, remap_matrix_x, remap_matrix_y, interpolation=cv2.INTER_NEAREST):
+    t0 = time.time()
+    dst = cv2.remap(image, remap_matrix_x, remap_matrix_y, interpolation=interpolation)
+    # print("remap time", time.time() - t0)
+    return dst
 
 def gpu_remap(image, remap_matrix_x, remap_matrix_y, interpolation=cv2.INTER_NEAREST):
     t0 = time.time()
