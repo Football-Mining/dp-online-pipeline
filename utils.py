@@ -1,14 +1,34 @@
 from dp_stitching.details_stitcher import DetailsStitcher
 import cv2
 import os
+from pathlib import Path
 
-MATRICES_ROOT_DIR = "/ssd/matrices"
+MATRICES_ROOT_DIR = "./matrices" # "/ssd/matrices"
+
+def read_ref_imgs(device_id="test_4K"):
+    """
+    We need the ref img dir to be like
+    left | right
+    Each directory contains the images for the left and right cameras, and pairs are matched by name
+    This func reads ref img paths, return a list in a format of [left1, right1, left2, right2, ...]
+    """
+    ref_imgs = []
+    ref_img_dir = Path(f"camera_configs/{device_id}")
+    left_img_dir = ref_img_dir / "left"
+    right_img_dir = ref_img_dir / "right"
+    left_img_paths = sorted(left_img_dir.glob("*.png"))
+    right_img_paths = sorted(right_img_dir.glob("*.png"))
+    
+    for left_img_path, right_img_path in zip(left_img_paths, right_img_paths):
+        ref_imgs.append(cv2.imread(str(left_img_path)))
+        ref_imgs.append(cv2.imread(str(right_img_path)))
+
+    return ref_imgs
 
 
 def get_regist_imgs(device_id="test_4K"):
-    left = cv2.imread(f"camera_configs/{device_id}/regist_left.png")
-    right = cv2.imread(f"camera_configs/{device_id}/regist_right.png")
-    return left, right
+    imgs = read_ref_imgs(device_id)
+    return imgs[0], imgs[1]
 
 
 def get_points_config_path(device_id, match_id):
@@ -27,41 +47,14 @@ def get_and_init_stitcher(device_id=None, warper_type=None):
     # cv2.ocl.setUseOpenCL(False)  # 显式启用 OpenCL
     if warper_type is None:
         warper_type = (
-            "sphericalgpu" if cv2.cuda.getCudaEnabledDeviceCount() else "spherical"
+            "spherical" # gpu" if cv2.cuda.getCudaEnabledDeviceCount() else "spherical"
         )
     if cv2.cuda.getCudaEnabledDeviceCount():
         cv2.cuda.setDevice(0)
     stitcher = DetailsStitcher(warper_type=warper_type)
-    left = (
-        "regist_left.png"
-        if device_id is None
-        else f"camera_configs/{device_id}/regist_left.png"
-    )
-    right = (
-        "regist_right.png"
-        if device_id is None
-        else f"camera_configs/{device_id}/regist_right.png"
-    )
-    if not os.path.exists(f"camera_configs/{device_id}/regist_left2.png"):
-        stitcher.regist_multiple_image(left, right)
 
-    else:
-        if not os.path.exists(f"camera_configs/{device_id}/regist_left3.png"):
-            stitcher.regist_multiple_image(
-                left,
-                right,
-                f"camera_configs/{device_id}/regist_left2.png",
-                f"camera_configs/{device_id}/regist_right2.png",
-            )
-        else:
-            stitcher.regist_multiple_image(
-                left,
-                right,
-                f"camera_configs/{device_id}/regist_left2.png",
-                f"camera_configs/{device_id}/regist_right2.png",
-                f"camera_configs/{device_id}/regist_left3.png",
-                f"camera_configs/{device_id}/regist_right3.png",
-            )
+    regist_imgs = get_regist_imgs(device_id)
+    stitcher.regist_multiple_image(*regist_imgs)
     stitcher.initialize_camera_from_features()
     # stitcher.get_mat_from_file()
     stitcher.initialize_warp()

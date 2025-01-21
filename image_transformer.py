@@ -7,6 +7,7 @@ from equirectangular_model import EquirectangularModel
 from utils import get_and_init_stitcher, get_regist_imgs, MATRICES_ROOT_DIR
 import sqlite3
 import shutil
+from pathlib import Path
 
 
 def combine_remaps(map1_xy, map2_xy, map3_xy=None):
@@ -188,7 +189,7 @@ class ImageTransformer:
 
     def get_path(self, x, mat_name):
         subfolder = f"{x // 100}"
-        dir_path = os.path.join("/ssd/matrices", mat_name, subfolder)
+        dir_path = os.path.join(MATRICES_ROOT_DIR, mat_name, subfolder)
         if not os.path.exists(dir_path):
             os.makedirs(dir_path)
         return os.path.join(dir_path, f"{x}.npy")
@@ -220,15 +221,16 @@ class ImageTransformer:
         # print(f"blender prepare time: {time.time() - t0}")
 
         t0 = time.time()
-        blender.feed(cv2.UMat(left_img), cv2.UMat(left_mask), np.zeros(2, np.int64))
-        blender.feed(cv2.UMat(right_img), cv2.UMat(right_mask), np.zeros(2, np.int64))
+        blender.feed(left_img, left_mask, np.zeros(2, np.int64))
+        blender.feed(right_img, right_mask, np.zeros(2, np.int64))
         res, _ = blender.blend(None, None)
         # print(f"blend time: {time.time() - t0}")
         return res
 
     def precalculate(self):
-        shutil.rmtree("/ssd/matrices")
-        os.makedirs("/ssd/matrices")
+        # shutil.rmtree(MATRICES_ROOT_DIR)
+        matrices_path = Path(MATRICES_ROOT_DIR)
+        matrices_path.mkdir(parents=True, exist_ok=True)
         min_x = self.points_config["left_most_setting"][0]
         max_x = self.points_config["right_most_setting"][0]
         # max_x = min_x
@@ -382,8 +384,8 @@ def gpu_remap(image, remap_matrix_x, remap_matrix_y, interpolation=cv2.INTER_NEA
 
 
 #     # img_transformer.precalculate()
-#     left_img = cv2.imread(f"camera_configs/{device_id}/regist_left.png", cv2.IMREAD_COLOR)
-#     right_img = cv2.imread(f"camera_configs/{device_id}/regist_right.png", cv2.IMREAD_COLOR)
+#     left_img = cv2.imread(f"camera_configs/{device_id}/left/regist_left.png", cv2.IMREAD_COLOR)
+#     right_img = cv2.imread(f"camera_configs/{device_id}/right/regist_right.png", cv2.IMREAD_COLOR)
 
 #     x = 1570
 

@@ -60,8 +60,8 @@ class ffmpegMultiTrackReader(object):
         for i in range(self.skips):
             right, left = next(self.video_tracks)
         right, left = next(self.video_tracks)
-        left = cv2.Umat(cv2.cvtColor(left, cv2.COLOR_BGR2RGB))
-        right = cv2.Umat(cv2.cvtColor(right, cv2.COLOR_BGR2RGB))
+        left = cv2.UMat(cv2.cvtColor(left, cv2.COLOR_BGR2RGB))
+        right = cv2.UMat(cv2.cvtColor(right, cv2.COLOR_BGR2RGB))
 
         return [left, right]
 

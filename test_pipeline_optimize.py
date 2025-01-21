@@ -2,6 +2,7 @@ from reader import ffmpegMultiTrackReader
 from preprocess import undistort_image
 from image_transformer import ImageTransformer
 import cv2
+import time
 
 import subprocess
 
@@ -27,10 +28,9 @@ dp_live_config = {
 }
 
 img_size = (2160, 3840, 3)
-video_path = "MOV_0082.mp4"
+video_path = "/home/mhliu/robot_demo_sat/MOV_0082.mp4"
 
 reader = ffmpegMultiTrackReader(video_path, img_size)
-
 
 img_transformer = ImageTransformer(
     points_config, dp_live_config, warper_type="spherical"
@@ -41,14 +41,19 @@ left, right = reader.next()
 # 目标x坐标from cameraman
 target_x = 2200
 
-left = img_transformer.compute_img(left, target_x, "left")
-right = img_transformer.compute_img(right, target_x, "right")
+img_transformer.precalculate()
 
-result = img_transformer.transform(left, right, target_x)
+while True:
+    t0 = time.time()
+    left = img_transformer.compute_img(left, target_x, "left")
+    right = img_transformer.compute_img(right, target_x, "right")
+
+    result = img_transformer.transform(left, right, target_x)
+    print(f"Transform Time: {time.time() - t0}")
 
 
-cv2.imwrite(f"test_left_1201.png", left)
-cv2.imwrite(f"test_right_1201.png", right)
-cv2.imwrite(f"test_result_1201.png", result)
+# cv2.imwrite(f"test_left_1201.png", left)
+# cv2.imwrite(f"test_right_1201.png", right)
+# cv2.imwrite(f"test_result_1201.png", result)
 
 # 最后ffmpeg编码
